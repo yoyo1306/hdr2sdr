@@ -42,7 +42,7 @@ namespace Hdr2Sdr
             y += 28;
 
             _chkStartup = new CheckBox();
-            _chkStartup.Text = "Lancer au demarrage de Windows";
+            _chkStartup.Text = "Lancer au d\u00e9marrage de Windows";
             _chkStartup.AutoSize = true;
             _chkStartup.Location = new Point(left, y);
             _chkStartup.Checked = StartupHelper.IsEnabled();
@@ -58,8 +58,8 @@ namespace Hdr2Sdr
 
             int row = 0;
             _txtToggle = AddHotkeyRow(row++, "Basculer HDR / SDR", cfg.HotkeyToggleHdr, left, ref y);
-            _txtUp = AddHotkeyRow(row++, "Luminosite +", cfg.HotkeySdrUp, left, ref y);
-            _txtDown = AddHotkeyRow(row++, "Luminosite -", cfg.HotkeySdrDown, left, ref y);
+            _txtUp = AddHotkeyRow(row++, "Luminosit\u00e9 +", cfg.HotkeySdrUp, left, ref y);
+            _txtDown = AddHotkeyRow(row++, "Luminosit\u00e9 -", cfg.HotkeySdrDown, left, ref y);
             _txtJour = AddHotkeyRow(row++, "Profil Jour", cfg.HotkeyProfileJour, left, ref y);
             _txtSoir = AddHotkeyRow(row++, "Profil Soir", cfg.HotkeyProfileSoir, left, ref y);
             _txtJeu = AddHotkeyRow(row++, "Profil Jeu", cfg.HotkeyProfileJeu, left, ref y);
@@ -68,7 +68,7 @@ namespace Hdr2Sdr
             Label tip = new Label();
             tip.AutoSize = false;
             tip.SetBounds(left, y, width - 32, 36);
-            tip.Text = "Clique un champ puis appuie sur la combinaison.\r\nEchap = effacer.";
+            tip.Text = "Clique un champ puis appuie sur la combinaison.\r\n\u00c9chap = effacer.";
             y += 44;
 
             Button btnOk = new Button();

@@ -123,13 +123,13 @@ namespace Hdr2Sdr
                 if (arg == "up")
                 {
                     int n = DisplayControl.AdjustBrightnessPercent(cfg.SdrStepPercent);
-                    ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosite ") + n + "%");
+                    ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosit\u00e9 ") + n + "%");
                     return DisplayControl.LastError.Length > 0 ? 1 : 0;
                 }
                 if (arg == "down")
                 {
                     int n = DisplayControl.AdjustBrightnessPercent(-cfg.SdrStepPercent);
-                    ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosite ") + n + "%");
+                    ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosit\u00e9 ") + n + "%");
                     return DisplayControl.LastError.Length > 0 ? 1 : 0;
                 }
                 int percent;
@@ -143,7 +143,7 @@ namespace Hdr2Sdr
                     ConsoleWrite("ERROR: " + (DisplayControl.LastError.Length > 0 ? DisplayControl.LastError : "set brightness failed"));
                     return 1;
                 }
-                ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosite ") + DisplayControl.GetBrightnessPercent() + "%");
+                ConsoleWrite((DisplayControl.IsHdrOn() ? "SDR " : "Luminosit\u00e9 ") + DisplayControl.GetBrightnessPercent() + "%");
                 return 0;
             }
 

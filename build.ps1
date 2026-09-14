@@ -90,7 +90,7 @@ $wsh = New-Object -ComObject WScript.Shell
 $lnk = $wsh.CreateShortcut($lnkPath)
 $lnk.TargetPath = $out
 $lnk.WorkingDirectory = $dist
-$lnk.Description = "hdr2sdr - HDR / SDR / luminosite"
+$lnk.Description = "hdr2sdr - HDR / SDR / luminosité"
 if (Test-Path $iconIco) { $lnk.IconLocation = "$iconIco,0" }
 else { $lnk.IconLocation = "$out,0" }
 $lnk.Save()

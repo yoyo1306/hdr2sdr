@@ -86,7 +86,7 @@ namespace Hdr2Sdr
             if (MonitorBrightness.TrySetPercent(percent))
                 return true;
 
-            LastError = "DDC/CI indisponible (luminosite moniteur)";
+            LastError = "DDC/CI indisponible (luminosit\u00e9 moniteur)";
             return false;
         }
 
@@ -322,15 +322,15 @@ namespace Hdr2Sdr
         {
             DisplayTarget t = GetPrimaryHdrTarget();
             if (t == null)
-                return "Aucun ecran detecte";
+                return "Aucun \u00e9cran d\u00e9tect\u00e9";
 
             if (!t.HdrSupported)
-                return "SDR | luminosite " + GetBrightnessPercent() + "%";
+                return "SDR | luminosit\u00e9 " + GetBrightnessPercent() + "%";
 
             if (t.HdrEnabled)
                 return "HDR ON | SDR " + GetSdrPercent() + "%";
 
-            return "SDR | luminosite " + GetBrightnessPercent() + "%";
+            return "SDR | luminosit\u00e9 " + GetBrightnessPercent() + "%";
         }
     }
 }

@@ -1,26 +1,26 @@
 # hdr2sdr
 
-Utilitaire **Windows 11** pour basculer rapidement **HDR ↔ SDR** et regler la **luminosite** (0–100 %).
+Utilitaire **Windows 11** pour basculer rapidement **HDR ↔ SDR** et régler la **luminosité** (0–100 %).
 
 Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Black 400), utile dès que le HDR Windows rend le bureau trop sombre ou trop pénible à gérer.
 
-## Fonctionnalites
+## Fonctionnalités
 
 - Basculer **HDR / SDR** (API Win11 24H2)
-- Luminosite unifiee 0–100 % :
+- Luminosité unifiée 0–100 % :
   - **HDR ON** → curseur Windows « contenu SDR »
-  - **SDR** → luminosite hardware (DDC/CI)
+  - **SDR** → luminosité hardware (DDC/CI)
 - Profils **Jour / Soir / Jeu**
-- Raccourcis clavier (modifiables, desactivables, maintien Lum+/−)
-- Options : minimiser en zone de notification, demarrage Windows
+- Raccourcis clavier (modifiables, désactivables, maintien Lum+/−)
+- Options : minimiser en zone de notification, démarrage Windows
 - CLI + helpers `.vbs` silencieux
-- Raccourci menu Demarrer
+- Raccourci menu Démarrer
 
 ## Installation
 
-1. Telecharge la derniere release (`hdr2sdr-vX.Y.Z.zip`)
+1. Télécharge la dernière release (`hdr2sdr-vX.Y.Z.zip`)
 2. Extrais et lance `hdr2sdr.exe`
-3. (Optionnel) coche « Lancer au demarrage » dans Options (engrenage)
+3. (Optionnel) coche « Lancer au démarrage » dans Options (engrenage)
 
 Ou build depuis les sources :
 
@@ -44,12 +44,12 @@ hdr2sdr profile soir
 hdr2sdr profile jeu
 ```
 
-## Raccourcis par defaut
+## Raccourcis par défaut
 
 | Raccourci | Action |
 |-----------|--------|
 | Ctrl+Alt+H | Basculer HDR / SDR |
-| Ctrl+Alt+Up / Down | Luminosite + / − |
+| Ctrl+Alt+Up / Down | Luminosité + / − |
 | Ctrl+Alt+1 / 2 / 3 | Profil Jour / Soir / Jeu |
 
 Config : `%AppData%\hdr2sdr\config.ini`

@@ -351,7 +351,7 @@ namespace Hdr2Sdr
             }
             _status.Text = _hdrOnCached
                 ? ("HDR ON | SDR " + percent + "%")
-                : ("SDR | luminosite " + percent + "%");
+                : ("SDR | luminosit\u00e9 " + percent + "%");
             string toggleLabel = _hdrOnCached ? "Basculer SDR" : "Basculer HDR";
             _btnToggle.Text = toggleLabel;
             _trayToggleItem.Text = toggleLabel;
