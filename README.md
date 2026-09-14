@@ -2,7 +2,7 @@
 
 Utilitaire **Windows 11** pour basculer rapidement **HDR ↔ SDR** et regler la **luminosite** (0–100 %).
 
-Pense pour les ecrans OLED gaming (ex. Philips Evnia 27M2N8500 / DisplayHDR True Black 400), utile des que le HDR Windows rend le bureau trop sombre ou trop penible a gerer.
+Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Black 400), utile dès que le HDR Windows rend le bureau trop sombre ou trop pénible à gérer.
 
 ## Fonctionnalites
 

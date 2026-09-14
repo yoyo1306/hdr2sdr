@@ -25,7 +25,7 @@ Premiere version publique.
 - Helpers `.vbs` sans fenetre console
 
 ### Notes
-- Pense pour le Philips Evnia 27M2N8500 (QD-OLED / DisplayHDR True Black 400), compatible autres ecrans HDR Win11
+- Pensé pour le Philips Evnia 27M2N8500 (QD-OLED / DisplayHDR True Black 400), compatible avec d'autres écrans HDR Win11
 - Profil Soir : HDR ON + SDR 0 %
 - Profil Jeu : HDR ON + SDR 80 % (ajustable via config)
 
