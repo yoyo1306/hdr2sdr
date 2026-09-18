@@ -4,7 +4,7 @@ Toutes les versions notables de hdr2sdr.
 
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
-## [Unreleased]
+## [1.1.1] - 2026-09-18
 
 ### Corrigé
 - Clic sur l'icône de la barre des tâches minimise/restaure la fenêtre
@@ -63,5 +63,6 @@ Première version publique.
 - Profil Soir : HDR ON + SDR 0 %
 - Profil Jeu : HDR ON + SDR 80 % (ajustable via config)
 
+[1.1.1]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.1.1
 [1.1.0]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.1.0
 [1.0.0]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.0.0
