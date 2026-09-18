@@ -48,6 +48,7 @@ namespace Hdr2Sdr
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             AppConfig cfg = AppConfig.Load();
+            ModernTheme.SetTheme(string.Equals(cfg.Theme, "light", StringComparison.OrdinalIgnoreCase) ? AppTheme.Light : AppTheme.Dark);
             if (cfg.StartWithWindows && !StartupHelper.IsEnabled())
                 StartupHelper.SetEnabled(true);
             StartMenuHelper.InstallOrUpdate();

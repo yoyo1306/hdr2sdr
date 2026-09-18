@@ -1,5 +1,7 @@
 # hdr2sdr
 
+> Interface modernisée (dark / clair, OLED-friendly, sans dépendance).
+
 Utilitaire **Windows 11** pour basculer rapidement **HDR ↔ SDR** et régler la **luminosité** (0–100 %).
 
 Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Black 400), utile dès que le HDR Windows rend le bureau trop sombre ou trop pénible à gérer.
@@ -12,6 +14,7 @@ Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Blac
   - **SDR** → luminosité hardware (DDC/CI)
 - Profils **Jour / Soir / Jeu**
 - Raccourcis clavier (modifiables, désactivables, maintien Lum+/−)
+- Thèmes **sombre / clair** (bouton ☀/☾, mémorisé en config)
 - Options : minimiser en zone de notification, démarrage Windows
 - CLI + helpers `.vbs` silencieux
 - Raccourci menu Démarrer

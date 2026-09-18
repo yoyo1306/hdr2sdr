@@ -24,7 +24,30 @@ namespace Hdr2Sdr
             {
                 ClosePhysical_NoLock();
                 _cachedPercent = -1;
-                _rangeReady = false;
+                // Keep _min/_max/_rangeReady so we can Set immediately after HDR toggle
+                // without a slow Get (which often sees the panel already at 100%).
+            }
+        }
+
+        /// <summary>Open DDC and cache min/max while the link is still stable (e.g. still in HDR).</summary>
+        public static bool EnsureRangeCached()
+        {
+            lock (Sync)
+            {
+                if (_rangeReady && _max > _min)
+                    return true;
+                if (!EnsureOpen_NoLock())
+                    return false;
+                uint min = 0, cur = 0, max = 0;
+                if (!Native.GetMonitorBrightness(_monitors[0].hPhysicalMonitor, ref min, ref cur, ref max) || max <= min)
+                {
+                    ClosePhysical_NoLock();
+                    return false;
+                }
+                _min = min;
+                _max = max;
+                _rangeReady = true;
+                return true;
             }
         }
 
@@ -38,26 +61,41 @@ namespace Hdr2Sdr
                     return true;
                 }
 
-                percent = 0;
-                if (!EnsureOpen_NoLock())
-                    return false;
-
-                uint min = 0, cur = 0, max = 0;
-                if (!Native.GetMonitorBrightness(_monitors[0].hPhysicalMonitor, ref min, ref cur, ref max))
-                {
-                    ClosePhysical_NoLock();
-                    return false;
-                }
-                if (max <= min)
-                    return false;
-
-                _min = min;
-                _max = max;
-                _rangeReady = true;
-                percent = ToPercent(cur);
-                _cachedPercent = percent;
-                return true;
+                return TryGetPercentFresh_NoLock(out percent);
             }
+        }
+
+        public static bool TryGetPercentFresh(out int percent)
+        {
+            lock (Sync)
+            {
+                _cachedPercent = -1;
+                ClosePhysical_NoLock();
+                return TryGetPercentFresh_NoLock(out percent);
+            }
+        }
+
+        private static bool TryGetPercentFresh_NoLock(out int percent)
+        {
+            percent = 0;
+            if (!EnsureOpen_NoLock())
+                return false;
+
+            uint min = 0, cur = 0, max = 0;
+            if (!Native.GetMonitorBrightness(_monitors[0].hPhysicalMonitor, ref min, ref cur, ref max))
+            {
+                ClosePhysical_NoLock();
+                return false;
+            }
+            if (max <= min)
+                return false;
+
+            _min = min;
+            _max = max;
+            _rangeReady = true;
+            percent = ToPercent(cur);
+            _cachedPercent = percent;
+            return true;
         }
 
         public static bool TrySetPercent(int percent)
@@ -83,22 +121,53 @@ namespace Hdr2Sdr
                     _rangeReady = true;
                 }
 
-                if (_cachedPercent == percent && _rangeReady)
-                    return true;
-
+                // Always write after mode changes — do not skip even if cache matches
                 uint value = _min + (uint)Math.Round(percent * (_max - _min) / 100.0);
                 if (value < _min) value = _min;
                 if (value > _max) value = _max;
 
                 if (!Native.SetMonitorBrightness(_monitors[0].hPhysicalMonitor, value))
                 {
-                    // Handle may be stale after HDR toggle / sleep
                     ClosePhysical_NoLock();
                     if (!EnsureOpen_NoLock())
                         return false;
                     if (!Native.SetMonitorBrightness(_monitors[0].hPhysicalMonitor, value))
                         return false;
                 }
+
+                _cachedPercent = percent;
+                return true;
+            }
+        }
+
+        /// <summary>Force-write brightness, reopening the handle if needed. Never skips.</summary>
+        public static bool ForceSetPercent(int percent)
+        {
+            if (percent < 0) percent = 0;
+            if (percent > 100) percent = 100;
+
+            lock (Sync)
+            {
+                ClosePhysical_NoLock();
+                if (!EnsureOpen_NoLock())
+                    return false;
+
+                if (!_rangeReady)
+                {
+                    uint min = 0, cur = 0, max = 0;
+                    if (!Native.GetMonitorBrightness(_monitors[0].hPhysicalMonitor, ref min, ref cur, ref max) || max <= min)
+                        return false;
+                    _min = min;
+                    _max = max;
+                    _rangeReady = true;
+                }
+
+                uint value = _min + (uint)Math.Round(percent * (_max - _min) / 100.0);
+                if (value < _min) value = _min;
+                if (value > _max) value = _max;
+
+                if (!Native.SetMonitorBrightness(_monitors[0].hPhysicalMonitor, value))
+                    return false;
 
                 _cachedPercent = percent;
                 return true;
@@ -151,7 +220,7 @@ namespace Hdr2Sdr
             _monitors = null;
             _count = 0;
             _hMonitor = IntPtr.Zero;
-            _rangeReady = false;
+            // Keep _rangeReady / _min / _max sticky across reopen
         }
 
         private static bool EnumCallback(IntPtr hMonitor, IntPtr hdc, IntPtr lprc, IntPtr data)

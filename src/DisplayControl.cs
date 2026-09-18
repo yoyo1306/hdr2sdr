@@ -61,6 +61,8 @@ namespace Hdr2Sdr
         /// HDR ON  → Windows "SDR content brightness"
         /// HDR OFF → monitor hardware brightness (DDC/CI)
         /// </summary>
+        private static int _lastSdrHardwarePercent = -1;
+
         public static int GetBrightnessPercent()
         {
             DisplayTarget t = GetPrimaryHdrTarget();
@@ -69,7 +71,12 @@ namespace Hdr2Sdr
 
             int pct;
             if (MonitorBrightness.TryGetPercent(out pct))
+            {
+                _lastSdrHardwarePercent = pct;
                 return pct;
+            }
+            if (_lastSdrHardwarePercent >= 0)
+                return _lastSdrHardwarePercent;
             return 0;
         }
 
@@ -84,10 +91,82 @@ namespace Hdr2Sdr
             }
 
             if (MonitorBrightness.TrySetPercent(percent))
+            {
+                _lastSdrHardwarePercent = percent;
                 return true;
+            }
 
             LastError = "DDC/CI indisponible (luminosit\u00e9 moniteur)";
             return false;
+        }
+
+        public static void RememberSdrBrightness()
+        {
+            DisplayTarget t = GetPrimaryHdrTarget();
+            if (t != null && t.HdrEnabled)
+                return;
+
+            int pct;
+            if (MonitorBrightness.TryGetPercent(out pct))
+                _lastSdrHardwarePercent = pct;
+            else if (_lastSdrHardwarePercent < 0)
+                _lastSdrHardwarePercent = 50;
+        }
+
+        public static int GetRememberedSdrBrightness()
+        {
+            return _lastSdrHardwarePercent >= 0 ? _lastSdrHardwarePercent : 50;
+        }
+
+        /// <summary>
+        /// Turn HDR off then restore DDC brightness.
+        /// Black overlays cannot hide the OLED 100% reset on this panel — skip them.
+        /// Wait for the mode switch to settle, then write brightness.
+        /// </summary>
+        public static bool LeaveHdrRestoringBrightness(out int restoredPercent)
+        {
+            restoredPercent = GetRememberedSdrBrightness();
+            int target = restoredPercent;
+
+            DisplayTarget disp = GetPrimaryHdrTarget();
+            if (disp == null || !disp.HdrEnabled)
+            {
+                MonitorBrightness.TrySetPercent(target);
+                return true;
+            }
+
+            bool ok = SetHdr(disp, false, -1, null);
+
+            // Let the panel finish its own 100% reset before DDC writes stick
+            Thread.Sleep(400);
+            MonitorBrightness.Invalidate();
+            MonitorBrightness.EnsureRangeCached();
+
+            for (int i = 0; i < 12; i++)
+            {
+                MonitorBrightness.ForceSetPercent(target);
+                Thread.Sleep(80);
+            }
+
+            _lastSdrHardwarePercent = target;
+            restoredPercent = target;
+            return ok;
+        }
+
+        public static int SyncBrightnessAfterLeavingHdr()
+        {
+            int target = GetRememberedSdrBrightness();
+            for (int i = 0; i < 8; i++)
+            {
+                if (MonitorBrightness.TrySetPercent(target) || MonitorBrightness.ForceSetPercent(target))
+                {
+                    _lastSdrHardwarePercent = target;
+                    return target;
+                }
+                Thread.Sleep(25);
+            }
+            _lastSdrHardwarePercent = target;
+            return target;
         }
 
         public static int AdjustBrightnessPercent(int deltaPercent)
@@ -193,6 +272,16 @@ namespace Hdr2Sdr
 
         public static bool SetHdr(DisplayTarget target, bool enabled)
         {
+            return SetHdr(target, enabled, -1, null);
+        }
+
+        public static bool SetHdr(DisplayTarget target, bool enabled, int restoreBrightnessPercent)
+        {
+            return SetHdr(target, enabled, restoreBrightnessPercent, null);
+        }
+
+        public static bool SetHdr(DisplayTarget target, bool enabled, int restoreBrightnessPercent, Action pulse)
+        {
             if (target == null)
                 return false;
 
@@ -202,7 +291,6 @@ namespace Hdr2Sdr
 
             MonitorBrightness.Invalidate();
 
-            // Prefer Win11 24H2 SET_HDR_STATE
             Native.DISPLAYCONFIG_SET_HDR_STATE hdr = new Native.DISPLAYCONFIG_SET_HDR_STATE();
             hdr.header.type = Native.DISPLAYCONFIG_DEVICE_INFO_SET_HDR_STATE;
             hdr.header.size = Marshal.SizeOf(typeof(Native.DISPLAYCONFIG_SET_HDR_STATE));
@@ -211,13 +299,25 @@ namespace Hdr2Sdr
             hdr.enableHdr = enabled ? 1u : 0u;
 
             int rc = Native.DisplayConfigSetDeviceInfo(ref hdr);
-            Thread.Sleep(250);
+
+            if (!enabled && restoreBrightnessPercent >= 0)
+            {
+                for (int i = 0; i < 20; i++)
+                {
+                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    if (pulse != null) pulse();
+                    Thread.Sleep(10);
+                }
+            }
+            else
+            {
+                Thread.Sleep(250);
+            }
 
             DisplayTarget after = GetPrimaryHdrTarget();
             if (after != null && after.HdrEnabled == enabled)
                 return true;
 
-            // Legacy fallback
             Native.DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE packet = new Native.DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE();
             packet.header.type = Native.DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
             packet.header.size = Marshal.SizeOf(typeof(Native.DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE));
@@ -226,15 +326,39 @@ namespace Hdr2Sdr
             packet.enableAdvancedColorState = enabled ? 1u : 0u;
 
             int rcLegacy = Native.DisplayConfigSetDeviceInfo(ref packet);
-            Thread.Sleep(250);
+
+            if (!enabled && restoreBrightnessPercent >= 0)
+            {
+                for (int i = 0; i < 15; i++)
+                {
+                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    if (pulse != null) pulse();
+                    Thread.Sleep(10);
+                }
+            }
+            else
+            {
+                Thread.Sleep(250);
+            }
 
             after = GetPrimaryHdrTarget();
             if (after != null && after.HdrEnabled == enabled)
                 return true;
 
-            // Fallback: Xbox Game Bar shortcut Win+Alt+B
             SendHdrHotkey();
-            Thread.Sleep(400);
+            if (!enabled && restoreBrightnessPercent >= 0)
+            {
+                for (int i = 0; i < 30; i++)
+                {
+                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    if (pulse != null) pulse();
+                    Thread.Sleep(10);
+                }
+            }
+            else
+            {
+                Thread.Sleep(400);
+            }
             after = GetPrimaryHdrTarget();
             if (after != null && after.HdrEnabled == enabled)
                 return true;

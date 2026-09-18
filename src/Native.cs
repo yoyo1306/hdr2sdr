@@ -267,5 +267,22 @@ namespace Hdr2Sdr
 
         [DllImport("dwmapi.dll", EntryPoint = "#171", CallingConvention = CallingConvention.StdCall)]
         public static extern int DwmpSDRToHDRBoost(IntPtr hMonitor, double brightness);
+
+        public const uint DWMWA_BORDER_COLOR = 34;
+
+        [DllImport("dwmapi.dll")]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, uint dwAttribute, ref uint pvAttribute, uint cbAttribute);
+
+        public static void SetBorderColor(IntPtr hwnd, System.Drawing.Color c)
+        {
+            try
+            {
+                uint colorref = (uint)(c.B << 16 | c.G << 8 | c.R);
+                DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref colorref, 4);
+            }
+            catch
+            {
+            }
+        }
     }
 }
