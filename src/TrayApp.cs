@@ -94,7 +94,9 @@ namespace Hdr2Sdr
             Text = "hdr2sdr";
             FormBorderStyle = FormBorderStyle.None;
             MaximizeBox = false;
-            MinimizeBox = false;
+            // true SANS menu visible (borderless) mais requis pour que le clic
+            // sur l'icône de la barre des tâches minimise/restaure la fenêtre.
+            MinimizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(400, 656);
             MinimumSize = new Size(400, 656);
@@ -152,6 +154,18 @@ namespace Hdr2Sdr
             {
                 ModernTheme.ApplyRounded(this, 18, 1);
             };
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                // WS_MINIMIZEBOX forcé : WinForms l'omet en borderless malgré
+                // MinimizeBox=true, et sans lui le clic taskbar ne minimise pas.
+                CreateParams p = base.CreateParams;
+                p.Style |= 0x20000;
+                return p;
+            }
         }
 
         protected override void OnHandleCreated(EventArgs e)

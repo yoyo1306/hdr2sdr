@@ -4,6 +4,12 @@ Toutes les versions notables de hdr2sdr.
 
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/).
 
+## [Unreleased]
+
+### Corrigé
+- Clic sur l'icône de la barre des tâches minimise/restaure la fenêtre
+  (`MinimizeBox=true`, invisible en borderless)
+
 ## [1.1.0] - 2026-09-18
 
 Interface modernisée, zéro dépendance supplémentaire.
