@@ -72,6 +72,11 @@ namespace Hdr2Sdr
 
         public static string Format(Keys modifiers, Keys key)
         {
+            return Format(modifiers, key, false);
+        }
+
+        public static string Format(Keys modifiers, Keys key, bool win)
+        {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             if ((modifiers & Keys.Control) == Keys.Control)
                 sb.Append("Ctrl+");
@@ -79,7 +84,8 @@ namespace Hdr2Sdr
                 sb.Append("Alt+");
             if ((modifiers & Keys.Shift) == Keys.Shift)
                 sb.Append("Shift+");
-            // Keys.LWin isn't in Modifiers typically for KeyEventArgs the same way
+            if (win)
+                sb.Append("Win+");
 
             Keys code = key;
             if (code == Keys.Up) sb.Append("Up");
@@ -114,18 +120,65 @@ namespace Hdr2Sdr
 
         public bool Register(int id, string chord, bool allowRepeat)
         {
+            int err;
+            return Register(id, chord, allowRepeat, out err);
+        }
+
+        public bool Register(int id, string chord, bool allowRepeat, out int win32Error)
+        {
+            win32Error = 0;
             uint mods;
             Keys key;
             if (!HotkeyParser.TryParse(chord, out mods, out key))
                 return false;
             if (!allowRepeat)
                 mods |= Native.MOD_NOREPEAT;
-            return Native.RegisterHotKey(Handle, id, mods, (uint)key);
+            // Au boot (session logon), le handle peut ne pas exister encore
+            // ou avoir été détruit (recréation) : le recréer garantit que
+            // RegisterHotKey s'applique sur un HWND vivant du thread UI.
+            EnsureHandle();
+            if (Handle == IntPtr.Zero)
+                return false;
+            // Nettoie un enregistrement précédent sur cet id avant de
+            // ré-enregistrer (ré-assertion idempotente, sans doublon).
+            try { Native.UnregisterHotKey(Handle, id); }
+            catch { }
+            bool ok = Native.RegisterHotKey(Handle, id, mods, (uint)key);
+            if (!ok)
+            {
+                try { win32Error = System.Runtime.InteropServices.Marshal.GetLastWin32Error(); }
+                catch { win32Error = -1; }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Recrée le handle s'il a été détruit (boot, changement de
+        /// bureau, recréation). Sans handle vivant, RegisterHotKey réussit
+        /// parfois mais aucun WM_HOTKEY n'arrive jamais.
+        /// </summary>
+        public void EnsureHandle()
+        {
+            try
+            {
+                if (Handle == IntPtr.Zero)
+                    CreateHandle(new CreateParams());
+            }
+            catch
+            {
+            }
         }
 
         public void Unregister(int id)
         {
-            Native.UnregisterHotKey(Handle, id);
+            try
+            {
+                if (Handle != IntPtr.Zero)
+                    Native.UnregisterHotKey(Handle, id);
+            }
+            catch
+            {
+            }
         }
 
         protected override void WndProc(ref Message m)

@@ -10,7 +10,10 @@ namespace Hdr2Sdr
         public bool StartWithWindows = false;
         public bool ShowNotifications = false;
         public bool MinimizeToTray = false;
+        public bool StartMinimized = false;
         public string Theme = "dark";
+        /// <summary>Nom GDI (\\.\DISPLAY1). Vide = écran principal.</summary>
+        public string MonitorDevice = "";
         // Windows Settings-style 0-100
         public int SdrStepPercent = 5;
         public int ProfileJeuSdrPercent = 80;
@@ -78,10 +81,14 @@ namespace Hdr2Sdr
                 cfg.StartWithWindows = IsTrue(val);
             else if (k == "theme")
                 cfg.Theme = val.ToLowerInvariant() == "light" ? "light" : "dark";
+            else if (k == "monitordevice")
+                cfg.MonitorDevice = val;
             else if (k == "shownotifications")
                 cfg.ShowNotifications = IsTrue(val);
             else if (k == "minimizetotray")
                 cfg.MinimizeToTray = IsTrue(val);
+            else if (k == "startminimized")
+                cfg.StartMinimized = IsTrue(val);
             else if (k == "sdrsteppercent")
                 cfg.SdrStepPercent = Clamp01(ParseInt(val, cfg.SdrStepPercent), 1, 50);
             else if (k == "profilejeusdrpercent")
@@ -141,8 +148,10 @@ namespace Hdr2Sdr
             sb.AppendLine("# hdr2sdr config (SDR = 0-100 comme Settings Windows)");
             sb.AppendLine("StartWithWindows=" + (StartWithWindows ? "true" : "false"));
             sb.AppendLine("Theme=" + Theme);
+            sb.AppendLine("MonitorDevice=" + MonitorDevice);
             sb.AppendLine("ShowNotifications=" + (ShowNotifications ? "true" : "false"));
             sb.AppendLine("MinimizeToTray=" + (MinimizeToTray ? "true" : "false"));
+            sb.AppendLine("StartMinimized=" + (StartMinimized ? "true" : "false"));
             sb.AppendLine("HotkeysEnabled=" + (HotkeysEnabled ? "true" : "false"));
             sb.AppendLine("SdrStepPercent=" + SdrStepPercent.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("ProfileJeuSdrPercent=" + ProfileJeuSdrPercent.ToString(CultureInfo.InvariantCulture));

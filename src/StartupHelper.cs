@@ -29,20 +29,28 @@ namespace Hdr2Sdr
 
         public static void SetEnabled(bool enabled)
         {
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, true))
+            try
             {
-                if (key == null)
-                    return;
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(RunKey, true))
+                {
+                    if (key == null)
+                        return;
 
-                if (enabled)
-                {
-                    string exe = Application.ExecutablePath;
-                    key.SetValue(ValueName, "\"" + exe + "\"");
+                    if (enabled)
+                    {
+                        string exe = Application.ExecutablePath;
+                        key.SetValue(ValueName, "\"" + exe + "\"");
+                    }
+                    else
+                    {
+                        try { key.DeleteValue(ValueName, false); }
+                        catch { }
+                    }
                 }
-                else
-                {
-                    key.DeleteValue(ValueName, false);
-                }
+            }
+            catch
+            {
+                // Registre verrouillé (GPO) : ne jamais crasher l'UI Options.
             }
         }
     }

@@ -11,10 +11,16 @@ if (-not (Test-Path $csc)) {
 
 New-Item -ItemType Directory -Path $dist, $assets -Force | Out-Null
 
-# Icon (optional)
+# Icon (optional - ne fait jamais échouer le build)
 $iconPy = Join-Path $root "tools\make_icon.py"
 if (Test-Path $iconPy) {
-  & python $iconPy
+  try {
+    $py = Get-Command python -ErrorAction Stop
+    & $py.Source "$iconPy"
+    if ($LASTEXITCODE -ne 0) { Write-Warning "make_icon.py exit=$LASTEXITCODE (icône ignorée)" }
+  } catch {
+    Write-Warning "python indisponible, icône existante conservée ($_)"
+  }
 }
 
 $iconIco = Join-Path $assets "hdr2sdr.ico"

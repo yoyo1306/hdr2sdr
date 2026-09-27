@@ -12,16 +12,17 @@ Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Blac
 - Luminosité unifiée 0–100 % :
   - **HDR ON** → curseur Windows « contenu SDR »
   - **SDR** → luminosité hardware (DDC/CI)
+- Choix de l'écran à contrôler (Options, mémorisé en config)
 - Profils **Jour / Soir / Jeu**
 - Raccourcis clavier (modifiables, désactivables, maintien Lum+/−)
 - Thèmes **sombre / clair** (bouton ☀/☾, mémorisé en config)
-- Options : minimiser en zone de notification, démarrage Windows
+- Options : minimiser en zone de notification, démarrage Windows, démarrage minimisé
 - CLI + helpers `.vbs` silencieux
 - Raccourci menu Démarrer
 
 ## Installation
 
-1. Télécharge la dernière release (`hdr2sdr-vX.Y.Z.zip`)
+1. Télécharge la dernière release (`hdr2sdr-v1.2.zip`)
 2. Extrais et lance `hdr2sdr.exe`
 3. (Optionnel) coche « Lancer au démarrage » dans Options (engrenage)
 

@@ -10,6 +10,7 @@ namespace Hdr2Sdr
         public Native.LUID AdapterId;
         public uint TargetId;
         public uint SourceId;
+        public string DeviceName;
         public bool HdrSupported;
         public bool HdrEnabled;
         public int SdrNits;
@@ -77,7 +78,34 @@ namespace Hdr2Sdr
             }
             if (_lastSdrHardwarePercent >= 0)
                 return _lastSdrHardwarePercent;
-            return 0;
+            // Inconnu (ex. DDC indisponible au boot) : 50 plutôt que 0
+            // trompeur (même convention que StatusTextCached).
+            return 50;
+        }
+
+        /// <summary>
+        /// Lecture fraîche DDC (ignore le cache) pour resync au lancement.
+        /// Retourne false si la valeur réelle est illisible : l'appelant ne
+        /// doit alors pas toucher à l'UI (jamais de 0 % issu d'un échec).
+        /// HDR ON : lecture DisplayConfig directe (rapide, fiable).
+        /// </summary>
+        public static bool TryGetBrightnessPercentFresh(out int percent)
+        {
+            DisplayTarget t = GetPrimaryHdrTarget();
+            if (t != null && t.HdrEnabled)
+            {
+                percent = NitsToPercent(t.SdrNits);
+                return true;
+            }
+            int pct;
+            if (MonitorBrightness.TryGetPercentFresh(out pct))
+            {
+                _lastSdrHardwarePercent = pct;
+                percent = pct;
+                return true;
+            }
+            percent = 0;
+            return false;
         }
 
         public static bool SetBrightnessPercent(int percent)
@@ -103,13 +131,19 @@ namespace Hdr2Sdr
         public static void RememberSdrBrightness()
         {
             DisplayTarget t = GetPrimaryHdrTarget();
-            if (t != null && t.HdrEnabled)
-                return;
+            bool hdr = t != null && t.HdrEnabled;
 
             int pct;
             if (MonitorBrightness.TryGetPercent(out pct))
+            {
+                // En HDR, un 100 % DDC est souvent un readout coincé, pas la
+                // luminosité SDR d'avant le basculement. On ne l'écrase pas.
+                if (hdr && pct >= 100)
+                    return;
                 _lastSdrHardwarePercent = pct;
-            else if (_lastSdrHardwarePercent < 0)
+                return;
+            }
+            if (_lastSdrHardwarePercent < 0)
                 _lastSdrHardwarePercent = 50;
         }
 
@@ -119,12 +153,12 @@ namespace Hdr2Sdr
         }
 
         /// <summary>
-        /// Turn HDR off then restore DDC brightness.
-        /// Black overlays cannot hide the OLED 100% reset on this panel — skip them.
-        /// Wait for the mode switch to settle, then write brightness.
+        /// Turn HDR off and push the last SDR hardware brightness during the switch.
         /// </summary>
         public static bool LeaveHdrRestoringBrightness(out int restoredPercent)
         {
+            if (_lastSdrHardwarePercent < 0)
+                RememberSdrBrightness();
             restoredPercent = GetRememberedSdrBrightness();
             int target = restoredPercent;
 
@@ -135,17 +169,22 @@ namespace Hdr2Sdr
                 return true;
             }
 
-            bool ok = SetHdr(disp, false, -1, null);
+            // Passe la luminosité mémorisée à SetHdr pour qu'elle parte
+            // pendant le basculement, pas après un blanc de 100 %.
+            bool ok = SetHdr(disp, false, target, null);
 
-            // Let the panel finish its own 100% reset before DDC writes stick
-            Thread.Sleep(400);
-            MonitorBrightness.Invalidate();
-            MonitorBrightness.EnsureRangeCached();
-
-            for (int i = 0; i < 12; i++)
+            MonitorBrightness.BeginHold();
+            try
             {
-                MonitorBrightness.ForceSetPercent(target);
-                Thread.Sleep(80);
+                for (int i = 0; i < 6; i++)
+                {
+                    MonitorBrightness.ForceSetPercent(target);
+                    Thread.Sleep(40);
+                }
+            }
+            finally
+            {
+                MonitorBrightness.EndHold();
             }
 
             _lastSdrHardwarePercent = target;
@@ -201,7 +240,9 @@ namespace Hdr2Sdr
                 return list;
 
             Native.DISPLAYCONFIG_PATH_INFO[] paths = new Native.DISPLAYCONFIG_PATH_INFO[pathCount];
-            Native.DISPLAYCONFIG_MODE_INFO[] modes = new Native.DISPLAYCONFIG_MODE_INFO[Math.Max(modeCount, 1)];
+            Native.DISPLAYCONFIG_MODE_INFO[] modes = modeCount > 0
+                ? new Native.DISPLAYCONFIG_MODE_INFO[modeCount]
+                : new Native.DISPLAYCONFIG_MODE_INFO[0];
             if (Native.QueryDisplayConfig(Native.QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero) != Native.ERROR_SUCCESS)
                 return list;
 
@@ -213,6 +254,15 @@ namespace Hdr2Sdr
                 target.TargetId = path.targetInfo.id;
                 target.SourceId = path.sourceInfo.id;
                 target.SdrNits = MinSdrNits;
+                target.DeviceName = "";
+
+                Native.DISPLAYCONFIG_SOURCE_DEVICE_NAME srcName = new Native.DISPLAYCONFIG_SOURCE_DEVICE_NAME();
+                srcName.header.type = Native.DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+                srcName.header.size = Marshal.SizeOf(typeof(Native.DISPLAYCONFIG_SOURCE_DEVICE_NAME));
+                srcName.header.adapterId = path.sourceInfo.adapterId;
+                srcName.header.id = path.sourceInfo.id;
+                if (Native.DisplayConfigGetDeviceInfo(ref srcName) == Native.ERROR_SUCCESS && srcName.viewGdiDeviceName != null)
+                    target.DeviceName = srcName.viewGdiDeviceName;
 
                 Native.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2 color2 = new Native.DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2();
                 color2.header.type = Native.DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2;
@@ -260,6 +310,21 @@ namespace Hdr2Sdr
         public static DisplayTarget GetPrimaryHdrTarget()
         {
             List<DisplayTarget> targets = GetTargets();
+            string want = MonitorCatalog.SelectedDevice;
+            if (string.IsNullOrEmpty(want))
+            {
+                MonitorEntry chosen = MonitorCatalog.Resolve();
+                if (chosen != null)
+                    want = chosen.DeviceName;
+            }
+            if (!string.IsNullOrEmpty(want))
+            {
+                for (int i = 0; i < targets.Count; i++)
+                {
+                    if (string.Equals(targets[i].DeviceName, want, StringComparison.OrdinalIgnoreCase))
+                        return targets[i];
+                }
+            }
             for (int i = 0; i < targets.Count; i++)
             {
                 if (targets[i].HdrSupported)
@@ -302,11 +367,11 @@ namespace Hdr2Sdr
 
             if (!enabled && restoreBrightnessPercent >= 0)
             {
-                for (int i = 0; i < 20; i++)
+                for (int i = 0; i < 8; i++)
                 {
-                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    MonitorBrightness.ForceSetPercent(restoreBrightnessPercent);
                     if (pulse != null) pulse();
-                    Thread.Sleep(10);
+                    Thread.Sleep(15);
                 }
             }
             else
@@ -329,11 +394,11 @@ namespace Hdr2Sdr
 
             if (!enabled && restoreBrightnessPercent >= 0)
             {
-                for (int i = 0; i < 15; i++)
+                for (int i = 0; i < 6; i++)
                 {
-                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    MonitorBrightness.ForceSetPercent(restoreBrightnessPercent);
                     if (pulse != null) pulse();
-                    Thread.Sleep(10);
+                    Thread.Sleep(15);
                 }
             }
             else
@@ -348,11 +413,11 @@ namespace Hdr2Sdr
             SendHdrHotkey();
             if (!enabled && restoreBrightnessPercent >= 0)
             {
-                for (int i = 0; i < 30; i++)
+                for (int i = 0; i < 8; i++)
                 {
-                    MonitorBrightness.TrySetPercent(restoreBrightnessPercent);
+                    MonitorBrightness.ForceSetPercent(restoreBrightnessPercent);
                     if (pulse != null) pulse();
-                    Thread.Sleep(10);
+                    Thread.Sleep(15);
                 }
             }
             else
@@ -381,12 +446,67 @@ namespace Hdr2Sdr
             Native.keybd_event(Native.VK_LWIN, 0, Native.KEYEVENTF_KEYUP, UIntPtr.Zero);
         }
 
+        /// <summary>Version cache seul, sans DDC (thread UI). Ne touche jamais au hardware.</summary>
+        public static int GetBrightnessPercentCached()
+        {
+            DisplayTarget t = GetPrimaryHdrTarget();
+            if (t != null && t.HdrEnabled)
+                return NitsToPercent(t.SdrNits);
+
+            int pct;
+            if (MonitorBrightness.TryGetCachedPercent(out pct))
+                return pct;
+            if (_lastSdrHardwarePercent >= 0)
+                return _lastSdrHardwarePercent;
+            return 50;
+        }
+
+        /// <summary>Statut sans accès DDC (thread UI). Même format que StatusText().</summary>
+        public static string StatusTextCached(out bool hdrOn, out int percent)
+        {
+            DisplayTarget t = GetPrimaryHdrTarget();
+            if (t == null)
+            {
+                hdrOn = false;
+                percent = 50;
+                return "Aucun \u00e9cran d\u00e9tect\u00e9";
+            }
+            if (t.HdrEnabled)
+            {
+                hdrOn = true;
+                percent = NitsToPercent(t.SdrNits);
+                return "HDR ON | SDR " + percent + "%";
+            }
+            hdrOn = false;
+            int cached;
+            if (MonitorBrightness.TryGetCachedPercent(out cached))
+                percent = cached;
+            else if (_lastSdrHardwarePercent >= 0)
+                percent = _lastSdrHardwarePercent;
+            else
+                percent = 50;
+            if (!t.HdrSupported && percent == 50 && _lastSdrHardwarePercent < 0)
+            {
+                // Jamais lu : affiche 50 % plutôt que 0 % trompeur.
+            }
+            return "SDR | luminosit\u00e9 " + percent + "%";
+        }
+
         public static bool ToggleHdr(out bool nowEnabled)
         {
             nowEnabled = false;
+            LastError = "";
             DisplayTarget target = GetPrimaryHdrTarget();
-            if (target == null || !target.HdrSupported)
+            if (target == null)
+            {
+                LastError = "aucun écran détecté";
                 return false;
+            }
+            if (!target.HdrSupported)
+            {
+                LastError = "HDR non supporté sur cet écran";
+                return false;
+            }
 
             bool next = !target.HdrEnabled;
             if (!SetHdr(target, next))

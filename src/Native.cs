@@ -8,6 +8,7 @@ namespace Hdr2Sdr
         public const int ERROR_SUCCESS = 0;
         public const uint QDC_ONLY_ACTIVE_PATHS = 2;
 
+        public const int DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1;
         public const int DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO = 9;
         public const int DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE = 10;
         public const int DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL = 11;
@@ -104,6 +105,14 @@ namespace Hdr2Sdr
             public uint id;
         }
 
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        public struct DISPLAYCONFIG_SOURCE_DEVICE_NAME
+        {
+            public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string viewGdiDeviceName;
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         public struct DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
         {
@@ -179,6 +188,9 @@ namespace Hdr2Sdr
         public static extern int DisplayConfigSetDeviceInfo(ref DISPLAYCONFIG_SET_SDR_WHITE_LEVEL setPacket);
 
         [DllImport("user32.dll")]
+        public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_SOURCE_DEVICE_NAME requestPacket);
+
+        [DllImport("user32.dll")]
         public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO requestPacket);
 
         [DllImport("user32.dll")]
@@ -205,6 +217,24 @@ namespace Hdr2Sdr
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         public static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
+        public struct DISPLAY_DEVICE
+        {
+            public int cb;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string DeviceName;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceString;
+            public uint StateFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceID;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+            public string DeviceKey;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        public static extern bool EnumDisplayDevices(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
 
         public const int CCHDEVICENAME = 32;
         public const uint MONITORINFOF_PRIMARY = 1;
@@ -259,10 +289,10 @@ namespace Hdr2Sdr
         [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool SetMonitorBrightness(IntPtr hPhysicalMonitor, uint dwNewBrightness);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         [DllImport("dwmapi.dll", EntryPoint = "#171", CallingConvention = CallingConvention.StdCall)]

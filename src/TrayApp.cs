@@ -2,42 +2,67 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace Hdr2Sdr
 {
     internal static class Profiles
     {
-        public static string ApplyJour()
+        public static bool ApplyJour(out string msg)
         {
             DisplayTarget t = DisplayControl.GetPrimaryHdrTarget();
             bool wasHdr = t != null && t.HdrEnabled;
             if (!wasHdr)
             {
                 DisplayControl.RememberSdrBrightness();
-                return "Profil Jour: HDR OFF (SDR natif)";
+                msg = "Profil Jour: HDR OFF (SDR natif)";
+                return true;
             }
 
             int pct;
-            DisplayControl.LeaveHdrRestoringBrightness(out pct);
-            return "Profil Jour: HDR OFF (SDR natif)";
+            bool ok = DisplayControl.LeaveHdrRestoringBrightness(out pct);
+            msg = "Profil Jour: HDR OFF (SDR natif)";
+            return ok;
         }
 
-        public static string ApplySoir(AppConfig cfg)
+        public static bool ApplySoir(AppConfig cfg, out string msg)
         {
             DisplayTarget t = DisplayControl.GetPrimaryHdrTarget();
             if (t != null && t.HdrSupported && !t.HdrEnabled)
-                DisplayControl.SetHdr(t, true);
-            DisplayControl.SetSdrPercent(cfg.ProfileSoirSdrPercent);
-            return "Profil Soir: HDR ON + SDR " + cfg.ProfileSoirSdrPercent + "%";
+            {
+                if (!DisplayControl.SetHdr(t, true))
+                {
+                    msg = "ERROR: activation HDR impossible (" + DisplayControl.LastError + ")";
+                    return false;
+                }
+            }
+            if (!DisplayControl.SetSdrPercent(cfg.ProfileSoirSdrPercent))
+            {
+                msg = "ERROR: réglage SDR impossible";
+                return false;
+            }
+            msg = "Profil Soir: HDR ON + SDR " + cfg.ProfileSoirSdrPercent + "%";
+            return true;
         }
 
-        public static string ApplyJeu(AppConfig cfg)
+        public static bool ApplyJeu(AppConfig cfg, out string msg)
         {
             DisplayTarget t = DisplayControl.GetPrimaryHdrTarget();
             if (t != null && t.HdrSupported && !t.HdrEnabled)
-                DisplayControl.SetHdr(t, true);
-            DisplayControl.SetSdrPercent(cfg.ProfileJeuSdrPercent);
-            return "Profil Jeu: HDR ON + SDR " + cfg.ProfileJeuSdrPercent + "%";
+            {
+                if (!DisplayControl.SetHdr(t, true))
+                {
+                    msg = "ERROR: activation HDR impossible (" + DisplayControl.LastError + ")";
+                    return false;
+                }
+            }
+            if (!DisplayControl.SetSdrPercent(cfg.ProfileJeuSdrPercent))
+            {
+                msg = "ERROR: réglage SDR impossible";
+                return false;
+            }
+            msg = "Profil Jeu: HDR ON + SDR " + cfg.ProfileJeuSdrPercent + "%";
+            return true;
         }
     }
 
@@ -70,6 +95,13 @@ namespace Hdr2Sdr
         private int _writePending = -1;
         private int _lastWriteTick;
         private int _targetBright = -1;
+        private int _reinforceGen;
+        private bool _hdrBusy;
+        private bool _launchResyncStarted;
+        private readonly System.Collections.Generic.List<int> _hotkeyFailed = new System.Collections.Generic.List<int>();
+        private readonly Timer _hotkeyAssertTimer;
+        private bool _hotkeySystemEventsHooked;
+        private int _hotkeyStartupAssertsDone;
         private bool _allowClose;
         private bool _updatingUi;
         private bool _hdrStateKnown;
@@ -98,8 +130,8 @@ namespace Hdr2Sdr
             // sur l'icône de la barre des tâches minimise/restaure la fenêtre.
             MinimizeBox = true;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(400, 656);
-            MinimumSize = new Size(400, 656);
+            ClientSize = new Size(400, 568);
+            MinimumSize = new Size(400, 568);
             BackColor = ModernTheme.Bg;
             // Mise à l'échelle désactivée : layout fixe dessiné au pixel près.
             // (AutoScaleMode.Font agrandissait la fenêtre à 467x757 et cassait
@@ -135,6 +167,9 @@ namespace Hdr2Sdr
 
             _hotkeys = new HotkeyWindow();
             _hotkeys.HotkeyPressed += OnHotkey;
+            _hotkeyAssertTimer = new Timer();
+            _hotkeyAssertTimer.Interval = 20000;
+            _hotkeyAssertTimer.Tick += HotkeyAssertTimer_Tick;
             RegisterHotkeys();
 
             _lastWriteTick = System.Environment.TickCount;
@@ -147,8 +182,55 @@ namespace Hdr2Sdr
             FormClosing += MainForm_FormClosing;
             Load += delegate
             {
-                ModernTheme.ApplyRounded(this, 18, 1);
-                RefreshStatus();
+                // Hook + asserts planifiés dans tous les cas (finally) : si
+                // RefreshStatus() lève au boot (driver pas prêt), on ne doit
+                // jamais se retrouver sans ré-assertion des hotkeys.
+                try
+                {
+                    ModernTheme.ApplyRounded(this, 18, 1);
+                }
+                catch { }
+                // Lecture DDC de l'écran principal avant le premier affichage.
+                // Ne pas poser _targetBright : ça bloquait toute correction
+                // si la première lecture était un 100 % faux.
+                try
+                {
+                    int fresh;
+                    DisplayControl.TryGetBrightnessPercentFresh(out fresh);
+                }
+                catch { }
+                try { RefreshStatus(); }
+                catch { }
+                // Démarrage discret : masqué directement (le Resize ne part
+                // pas toujours avant le premier affichage, la fenêtre
+                // apparaîtrait sinon dans Alt+Tab).
+                try
+                {
+                    if (_cfg.StartMinimized)
+                    {
+                        if (_cfg.MinimizeToTray)
+                            HideToTray();
+                        else
+                            WindowState = FormWindowState.Minimized;
+                    }
+                }
+                catch { }
+                try
+                {
+                    // Au boot, RegisterHotKey peut réussir puis être invalidé
+                    // (driver/GPU pas prêt, topologie d'écrans qui change juste
+                    // après le logon, Explorer qui se réinitialise) sans aucun
+                    // échec détecté. On ré-affirme donc systématiquement après
+                    // le démarrage, même si aucun échec n'est connu : c'est ce
+                    // qui rendait les raccourcis muets jusqu'à la première
+                    // ouverture manuelle de la fenêtre.
+                    HookHotkeySystemEvents();
+                }
+                catch { }
+                try { ScheduleStartupHotkeyAsserts(); }
+                catch { }
+                try { hkLog("boot minimized=" + _cfg.StartMinimized + " tray=" + _cfg.MinimizeToTray + " hotkeys=" + _cfg.HotkeysEnabled); }
+                catch { }
             };
             SizeChanged += delegate
             {
@@ -176,6 +258,34 @@ namespace Hdr2Sdr
             // recréé (ex. minimise/restore via le tray).
             ModernTheme.ApplyRounded(this, 18, 1);
             Native.SetBorderColor(Handle, ModernTheme.Bg);
+            // Recréation de handle (veille, changement d'écran, reboot
+            // du driver) : la table des hotkeys peut avoir été vidée.
+            // Ré-affirme sans bloquer la création du handle.
+            try { BeginAssertHotkeys(); }
+            catch { }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            // La topologie d'affichage a changé (boot, veille, dock, HDR) :
+            // le handle DDC peut être périmé, on le rouvrira au prochain accès.
+            if (m.Msg == 0x007E)
+            {
+                try
+                {
+                    MonitorBrightness.Invalidate();
+                }
+                catch
+                {
+                }
+                // Le driver peut libérer/reprendre des touches à ce moment :
+                // ré-affirme les raccourcis (cas typique : boot).
+                // Fenêtre masquée en tray : le broadcast arrive quand même,
+                // mais on passe par Begin (post) pour ne jamais bloquer WndProc.
+                try { BeginAssertHotkeys(); }
+                catch { }
+            }
+            base.WndProc(ref m);
         }
 
         // ---------- layout ----------
@@ -215,7 +325,7 @@ namespace Hdr2Sdr
             title.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
             title.ForeColor = ModernTheme.Text;
             title.BackColor = Color.Transparent;
-            title.SetBounds(38, 12, 120, 22);
+            title.SetBounds(38, 12, 200, 22);
             title.MouseDown += HeaderMouseDown;
             title.MouseMove += HeaderMouseMove;
             title.MouseUp += HeaderMouseUp;
@@ -343,9 +453,9 @@ namespace Hdr2Sdr
 
             _slider = new ModernSlider();
             _slider.SetBounds(8, 36, 352, 38);
-            // Écriture DDC bridée : l'UI (thumb + %) suit instantanément,
-            // le hardware reçoit au max une écriture toutes les 80 ms avec
-            // la dernière valeur + flush immédiat au relâcher.
+            // 100 % non-bloquant : labels + peinture synchrone immédiats,
+            // écriture DDC déléguée au thread dédié. Aucun appel DDC sur
+            // le thread UI ici (un DDC qui accroche figeait toute l'UI).
             _slider.ValueChanged += delegate
             {
                 if (_updatingUi) return;
@@ -355,11 +465,6 @@ namespace Hdr2Sdr
                 _bigValue.Update();
                 _brightValueLabel.Update();
                 RequestBrightnessWrite(v);
-            };
-            _slider.MouseUp += delegate
-            {
-                FlushPendingBrightness();
-                RefreshStatus();
             };
             bright.Controls.Add(_slider);
 
@@ -389,43 +494,26 @@ namespace Hdr2Sdr
             Controls.Add(profLabel);
 
             _cardJour = MakeProfileCard("☀", "Jour", "SDR natif", 16, 440);
-            _cardJour.Click += delegate { Profiles.ApplyJour(); RefreshStatus(); };
+            _cardJour.Click += delegate { ApplyProfileAsync(4); };
             Controls.Add(_cardJour);
 
             _cardSoir = MakeProfileCard("☾", "Soir", "HDR + doux", 140, 440);
-            _cardSoir.Click += delegate { Profiles.ApplySoir(_cfg); RefreshStatus(); };
+            _cardSoir.Click += delegate { ApplyProfileAsync(5); };
             Controls.Add(_cardSoir);
 
             _cardJeu = MakeProfileCard("🎮", "Jeu", "HDR + punchy", 264, 440);
-            _cardJeu.Click += delegate { Profiles.ApplyJeu(_cfg); RefreshStatus(); };
+            _cardJeu.Click += delegate { ApplyProfileAsync(6); };
             Controls.Add(_cardJeu);
 
-            // Footer (ancré en bas : garde ses marges si la fenêtre est mise à l'échelle)
-            Label footer = new Label();
-            footer.Text = "Ctrl+Alt+H : HDR/SDR   •   Ctrl+Alt+Haut/Bas : luminosité";
-            footer.Font = new Font("Segoe UI", 7.5f, FontStyle.Regular);
-            footer.ForeColor = ModernTheme.TextFaint;
-            footer.BackColor = Color.Transparent;
-            footer.TextAlign = ContentAlignment.MiddleCenter;
-            footer.SetBounds(16, 556, 368, 16);
-            footer.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            Controls.Add(footer);
-
-            Label footer2 = new Label();
-            footer2.Text = "Réduire minimise en zone de notification si activé dans Options.";
-            footer2.Font = new Font("Segoe UI", 7.5f, FontStyle.Regular);
-            footer2.ForeColor = ModernTheme.TextFaint;
-            footer2.BackColor = Color.Transparent;
-            footer2.TextAlign = ContentAlignment.MiddleCenter;
-            footer2.SetBounds(16, 574, 368, 16);
-            footer2.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            Controls.Add(footer2);
-
-            Button toggleBtn = ModernTheme.MakePillButton("Basculer HDR / SDR", true);
-            toggleBtn.SetBounds(16, 598, 368, 34);
-            toggleBtn.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            toggleBtn.Click += delegate { DoToggleHdr(); };
-            Controls.Add(toggleBtn);
+            Label version = new Label();
+            version.Text = BuildInfo.ShortVersion;
+            version.Font = new Font("Segoe UI", 7.5f, FontStyle.Regular);
+            version.ForeColor = ModernTheme.TextFaint;
+            version.BackColor = Color.Transparent;
+            version.TextAlign = ContentAlignment.MiddleRight;
+            version.SetBounds(200, 548, 184, 16);
+            version.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
+            Controls.Add(version);
         }
 
         private ProfileCard MakeProfileCard(string icon, string title, string desc, int x, int y)
@@ -508,6 +596,16 @@ namespace Hdr2Sdr
 
             UnregisterHotkeys();
             RegisterHotkeys();
+            MonitorCatalog.SelectedDevice = _cfg.MonitorDevice ?? "";
+            MonitorBrightness.Invalidate();
+            _targetBright = -1;
+            _launchResyncStarted = false;
+            try
+            {
+                int fresh;
+                DisplayControl.TryGetBrightnessPercentFresh(out fresh);
+            }
+            catch { }
             RefreshStatus();
         }
 
@@ -518,12 +616,29 @@ namespace Hdr2Sdr
             if (!_cfg.MinimizeToTray)
                 return;
 
+            HideToTray();
+        }
+
+        private void HideToTray()
+        {
             Hide();
             ShowInTaskbar = false;
             _tray.Visible = true;
-            string tip = DisplayControl.StatusText();
-            if (tip.Length > 60) tip = tip.Substring(0, 60);
-            _tray.Text = tip;
+            try
+            {
+                // Au boot, StatusText() fait du DDC synchrone sur le thread UI
+                // (lent, peut figer la pompe à messages juste quand les
+                // hotkeys doivent se stabiliser). Version cache seul ici ;
+                // RefreshStatus() en fond resync peu après.
+                bool hdr;
+                int v;
+                string tip = DisplayControl.StatusTextCached(out hdr, out v);
+                if (tip.Length > 60) tip = tip.Substring(0, 60);
+                _tray.Text = tip;
+            }
+            catch
+            {
+            }
         }
 
         private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
@@ -532,6 +647,9 @@ namespace Hdr2Sdr
                 return;
 
             _allowClose = true;
+            UnhookHotkeySystemEvents();
+            _hotkeyAssertTimer.Stop();
+            _hotkeyAssertTimer.Dispose();
             _writeStop = true;
             _writeEvent.Set();
             if (_writeThread != null)
@@ -546,6 +664,7 @@ namespace Hdr2Sdr
             MonitorBrightness.Invalidate();
             _tray.Visible = false;
             _tray.Dispose();
+            try { _trayMenu.Dispose(); } catch { }
         }
 
         private void RestoreFromTray()
@@ -557,6 +676,10 @@ namespace Hdr2Sdr
             BringToFront();
             Activate();
             RefreshStatus();
+            // C'est exactement le geste qui réparait les raccourcis à la
+            // main : on le fait désormais automatiquement à chaque retour.
+            try { BeginAssertHotkeys(); }
+            catch { }
         }
 
         private void HideTrayIcon()
@@ -573,6 +696,8 @@ namespace Hdr2Sdr
         {
             for (int i = 1; i <= 6; i++)
                 _hotkeys.Unregister(i);
+            _hotkeyFailed.Clear();
+            _hotkeyAssertTimer.Stop();
         }
 
         private void RegisterHotkeys()
@@ -587,13 +712,214 @@ namespace Hdr2Sdr
             TryRegister(HK_JOUR, _cfg.HotkeyProfileJour, false);
             TryRegister(HK_SOIR, _cfg.HotkeyProfileSoir, false);
             TryRegister(HK_JEU, _cfg.HotkeyProfileJeu, false);
+
+            if (!_hotkeyAssertTimer.Enabled)
+                _hotkeyAssertTimer.Start();
         }
 
-        private void TryRegister(int id, string chord, bool allowRepeat)
+        private bool TryRegister(int id, string chord, bool allowRepeat)
         {
             if (string.IsNullOrEmpty(chord))
+                return true;
+            int err;
+            bool ok = _hotkeys.Register(id, chord, allowRepeat, out err);
+            if (ok)
+            {
+                _hotkeyFailed.Remove(id);
+                return true;
+            }
+            // Échec : retenté automatiquement par AssertHotkeys.
+            // err 1409 = déjà pris (conflit transitoire au boot typique),
+            // err 0 = chord invalide.
+            hkLog(id + " '" + chord + "' -> FAIL err=" + err);
+            if (!_hotkeyFailed.Contains(id))
+                _hotkeyFailed.Add(id);
+            return false;
+        }
+
+        private static void hkLog(string msg)
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hdr-hk-log.txt");
+                try
+                {
+                    System.IO.FileInfo fi = new System.IO.FileInfo(path);
+                    if (fi.Exists && fi.Length > 102400)
+                        System.IO.File.WriteAllText(path, string.Empty);
+                }
+                catch { }
+                System.IO.File.AppendAllText(
+                    path,
+                    System.DateTime.Now.ToString("HH:mm:ss") + " " + msg + "\r\n");
+            }
+            catch
+            {
+            }
+        }
+
+        private void HotkeyAssertTimer_Tick(object sender, EventArgs e)
+        {
+            // Ne ré-affirme périodiquement que s'il y a des échecs connus :
+            // sinon on laisserait un trou de 6 unregister/register toutes les 20 s.
+            if (_hotkeyFailed.Count == 0)
                 return;
-            _hotkeys.Register(id, chord, allowRepeat);
+            AssertHotkeys();
+        }
+
+        /// <summary>
+        /// Ré-affirme tous les raccourcis configurés : répare les touches
+        /// perdues (conflit transitoire au boot, table hotkey réinitialisée…)
+        /// sans aucune intervention. Désenregistre les cases vidées.
+        /// Toujours exécuté sur le thread UI (le HWND des hotkeys y est lié).
+        /// </summary>
+        private void AssertHotkeys()
+        {
+            if (IsDisposed)
+                return;
+            if (InvokeRequired)
+            {
+                try { BeginInvoke((MethodInvoker)delegate { AssertHotkeys(); }); }
+                catch { }
+                return;
+            }
+            if (!_cfg.HotkeysEnabled)
+                return;
+            try { _hotkeys.EnsureHandle(); }
+            catch { }
+            int before = _hotkeyFailed.Count;
+            for (int id = 1; id <= 6; id++)
+            {
+                string chord = HotkeyChord(id);
+                if (string.IsNullOrEmpty(chord))
+                {
+                    _hotkeys.Unregister(id);
+                    _hotkeyFailed.Remove(id);
+                    continue;
+                }
+                // Register() nettoie déjà l'id avant de ré-enregistrer.
+                TryRegister(id, chord, HotkeyRepeat(id));
+            }
+            if (_hotkeyFailed.Count != before)
+                RefreshStatus();
+        }
+
+        /// <summary>
+        /// Version postée (non-bloquante) pour WndProc / SystemEvents /
+        /// threads pool : ne bloque jamais l'appelant.
+        /// </summary>
+        private void BeginAssertHotkeys()
+        {
+            if (IsDisposed)
+                return;
+            try
+            {
+                if (!IsHandleCreated)
+                    return;
+                BeginInvoke((MethodInvoker)delegate
+                {
+                    try { AssertHotkeys(); }
+                    catch { }
+                });
+            }
+            catch
+            {
+            }
+        }
+
+        private void HookHotkeySystemEvents()
+        {
+            if (_hotkeySystemEventsHooked)
+                return;
+            _hotkeySystemEventsHooked = true;
+            try
+            {
+                // WndProc 0x7E ne suffit pas quand la fenêtre est masquée en
+                // tray au boot : ces événements arrivent même sans fenêtre
+                // visible et couvrent boot / changement d'écran / veille.
+                SystemEvents.DisplaySettingsChanged += SystemEvents_HotkeysChanged;
+                SystemEvents.SessionSwitch += SystemEvents_HotkeysChanged;
+                SystemEvents.PowerModeChanged += SystemEvents_HotkeysChanged;
+            }
+            catch
+            {
+            }
+        }
+
+        private void UnhookHotkeySystemEvents()
+        {
+            if (!_hotkeySystemEventsHooked)
+                return;
+            _hotkeySystemEventsHooked = false;
+            try
+            {
+                SystemEvents.DisplaySettingsChanged -= SystemEvents_HotkeysChanged;
+                SystemEvents.SessionSwitch -= SystemEvents_HotkeysChanged;
+                SystemEvents.PowerModeChanged -= SystemEvents_HotkeysChanged;
+            }
+            catch
+            {
+            }
+        }
+
+        private void SystemEvents_HotkeysChanged(object sender, EventArgs e)
+        {
+            try { BeginAssertHotkeys(); }
+            catch { }
+        }
+
+        /// <summary>
+        /// Rafale de ré-assertions après le démarrage : au boot, l'enregis-
+        /// trement initial peut être invalidé quelques secondes plus tard
+        /// (driver GPU, Explorer) sans échec détecté. On ré-affirme donc à
+        /// 3 s / 10 s / 30 s / 60 s, même si tout semblait OK. Inoffensif en
+        /// usage normal (idempotent, Sur thread UI via BeginInvoke).
+        /// </summary>
+        private void ScheduleStartupHotkeyAsserts()
+        {
+            int[] delays = new int[] { 3000, 10000, 30000, 60000 };
+            for (int i = 0; i < delays.Length; i++)
+            {
+                int d = delays[i];
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try { System.Threading.Thread.Sleep(d); }
+                    catch { }
+                    try
+                    {
+                        if (IsDisposed || !IsHandleCreated)
+                            return;
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            try
+                            {
+                                _hotkeyStartupAssertsDone++;
+                                AssertHotkeys();
+                                if (_hotkeyStartupAssertsDone == 1)
+                                    hkLog("startup assert (3s) failed=" + _hotkeyFailed.Count);
+                            }
+                            catch { }
+                        });
+                    }
+                    catch { }
+                });
+            }
+        }
+
+        private string HotkeyChord(int id)
+        {
+            if (id == HK_TOGGLE) return _cfg.HotkeyToggleHdr;
+            if (id == HK_SDR_UP) return _cfg.HotkeySdrUp;
+            if (id == HK_SDR_DOWN) return _cfg.HotkeySdrDown;
+            if (id == HK_JOUR) return _cfg.HotkeyProfileJour;
+            if (id == HK_SOIR) return _cfg.HotkeyProfileSoir;
+            if (id == HK_JEU) return _cfg.HotkeyProfileJeu;
+            return null;
+        }
+
+        private static bool HotkeyRepeat(int id)
+        {
+            return id == HK_SDR_UP || id == HK_SDR_DOWN;
         }
 
         private void OnHotkey(int id)
@@ -606,9 +932,55 @@ namespace Hdr2Sdr
                 NudgeBrightnessHold(_cfg.SdrStepPercent);
             else if (id == HK_SDR_DOWN)
                 NudgeBrightnessHold(-_cfg.SdrStepPercent);
-            else if (id == HK_JOUR) { Profiles.ApplyJour(); RefreshStatus(); }
-            else if (id == HK_SOIR) { Profiles.ApplySoir(_cfg); RefreshStatus(); }
-            else if (id == HK_JEU) { Profiles.ApplyJeu(_cfg); RefreshStatus(); }
+            else if (id == HK_JOUR) ApplyProfileAsync(4);
+            else if (id == HK_SOIR) ApplyProfileAsync(5);
+            else if (id == HK_JEU) ApplyProfileAsync(6);
+        }
+
+        /// <summary>Profils sur thread pool : LeaveHdr/SetHdr bloquent 1-4 s (DDC).</summary>
+        private void ApplyProfileAsync(int which)
+        {
+            if (_hdrBusy)
+                return;
+            _hdrBusy = true;
+            CancelPendingBrightness();
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                bool leftToSdr = false;
+                int restored = -1;
+                try
+                {
+                    string dummy;
+                    if (which == 4)
+                        Profiles.ApplyJour(out dummy);
+                    else if (which == 5)
+                        Profiles.ApplySoir(_cfg, out dummy);
+                    else
+                        Profiles.ApplyJeu(_cfg, out dummy);
+                    leftToSdr = which == 4 && !DisplayControl.IsHdrOn();
+                    if (leftToSdr)
+                        restored = DisplayControl.GetRememberedSdrBrightness();
+                }
+                catch { }
+                int shown = restored;
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            _hdrBusy = false;
+                            _hdrStateKnown = false;
+                            if (shown >= 0)
+                                _targetBright = shown;
+                            else
+                                _targetBright = -1;
+                            RefreshStatus();
+                        });
+                    else
+                        _hdrBusy = false;
+                }
+                catch { _hdrBusy = false; }
+            });
         }
 
         private void NudgeBrightnessHold(int delta)
@@ -675,22 +1047,35 @@ namespace Hdr2Sdr
 
         private void FlushPendingBrightness()
         {
-            int value = _targetBright;
-            _targetBright = -1;
+            int value;
+            lock (_writeSync)
+            {
+                value = _writePending;
+                _writePending = -1;
+            }
             if (value < 0)
                 return;
+            // Seulement une écriture pas encore partie. SetBrightnessPercent
+            // choisit DDC (SDR) ou le curseur Windows (HDR) : forcer le DDC
+            // avec le % affiché en HDR envoyait la luminosité SDR Windows
+            // au moniteur (souvent haut) juste avant le retour SDR.
+            try { DisplayControl.SetBrightnessPercent(value); }
+            catch { }
+        }
+
+        private void CancelPendingBrightness()
+        {
+            _reinforceGen++;
+            _targetBright = -1;
             lock (_writeSync)
             {
                 _writePending = -1;
             }
-            DisplayControl.SetBrightnessPercent(value);
-            UpdateBrightnessStatusText(value);
         }
 
         private void PaintBadge(Label badge, bool hdrOn)
         {
-            // Pas de région arrondie : fenêtre et contrôles restent carrés et
-            // opaques (zéro risque de ticks sombres aux coins).
+            // Ne recrée la région qu'en cas de changement d'état.
             if (_badgeHasState && _badgeHdrState == hdrOn)
                 return;
             _badgeHasState = true;
@@ -735,6 +1120,25 @@ namespace Hdr2Sdr
                 UpdateProfileSelection(percent);
                 string toggleLabel = _hdrOnCached ? "Basculer SDR" : "Basculer HDR";
                 _trayToggleItem.Text = toggleLabel;
+                // Le tooltip du tray suivait seulement RefreshStatus : il restait
+                // figé après chaque drag. Même format que StatusText().
+                try
+                {
+                    if (_tray.Visible)
+                    {
+                        string tip = _hdrOnCached
+                            ? ("HDR ON | SDR " + percent + "%")
+                            : ("SDR | luminosité " + percent + "%");
+                        if (tip.Length > 60) tip = tip.Substring(0, 60);
+                        if (_hotkeyFailed.Count > 0)
+                            tip += " ⚠";
+                        if (_tray.Text != tip)
+                            _tray.Text = tip;
+                    }
+                }
+                catch
+                {
+                }
             }
             finally
             {
@@ -761,6 +1165,8 @@ namespace Hdr2Sdr
 
         private void DoSetHdr(bool wantOn)
         {
+            if (_hdrBusy)
+                return;
             FlushPendingBrightness();
             bool isOn = DisplayControl.IsHdrOn();
             if (isOn == wantOn)
@@ -768,71 +1174,145 @@ namespace Hdr2Sdr
                 RefreshStatus();
                 return;
             }
-            if (!wantOn)
+            _hdrBusy = true;
+            // Optimiste : reflète l'état voulu tout de suite, le worker confirme.
+            _hdrOnCached = wantOn;
+            _hdrStateKnown = true;
+            _updatingUi = true;
+            try { _toggle.SetCheckedSilent(wantOn); }
+            finally { _updatingUi = false; }
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                int pct;
-                DisplayControl.LeaveHdrRestoringBrightness(out pct);
-                _hdrStateKnown = false;
-                _targetBright = -1;
-                RefreshStatus(false);
-                ScheduleBrightnessReinforce(pct);
-                return;
-            }
-            DisplayControl.RememberSdrBrightness();
-            DisplayTarget t = DisplayControl.GetPrimaryHdrTarget();
-            if (t != null)
-                DisplayControl.SetHdr(t, true);
-            _hdrStateKnown = false;
-            _targetBright = -1;
-            RefreshStatus();
+                int pct = -1;
+                try
+                {
+                    if (!wantOn)
+                    {
+                        DisplayControl.LeaveHdrRestoringBrightness(out pct);
+                    }
+                    else
+                    {
+                        DisplayControl.RememberSdrBrightness();
+                        DisplayTarget t = DisplayControl.GetPrimaryHdrTarget();
+                        if (t != null)
+                            DisplayControl.SetHdr(t, true);
+                    }
+                }
+                catch { }
+                int shown = pct;
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            _hdrBusy = false;
+                            _hdrStateKnown = false;
+                            if (!wantOn && shown >= 0)
+                            {
+                                _targetBright = shown;
+                                _updatingUi = true;
+                                try { _slider.SetValueSilent(shown); }
+                                finally { _updatingUi = false; }
+                                RefreshStatus(false);
+                                ScheduleBrightnessReinforce(shown);
+                            }
+                            else
+                            {
+                                _targetBright = -1;
+                                RefreshStatus();
+                            }
+                        });
+                    else
+                        _hdrBusy = false;
+                }
+                catch { _hdrBusy = false; }
+            });
         }
 
         private void DoToggleHdr()
         {
+            if (_hdrBusy)
+                return;
             FlushPendingBrightness();
             bool wasHdr = DisplayControl.IsHdrOn();
-            if (!wasHdr)
-            {
-                DisplayControl.RememberSdrBrightness();
-                bool enabled;
-                if (!DisplayControl.ToggleHdr(out enabled))
-                {
-                    _hdrStateKnown = false;
-                    RefreshStatus();
-                    return;
-                }
-                _hdrStateKnown = false;
-                _targetBright = -1;
-                RefreshStatus();
-                return;
-            }
-
-            int pct;
-            DisplayControl.LeaveHdrRestoringBrightness(out pct);
-            _hdrStateKnown = false;
-            _targetBright = -1;
-
+            _hdrBusy = true;
+            _hdrOnCached = !wasHdr;
+            _hdrStateKnown = true;
             _updatingUi = true;
-            try
+            try { _toggle.SetCheckedSilent(!wasHdr); }
+            finally { _updatingUi = false; }
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
-                _slider.SetValueSilent(pct);
-            }
-            finally
-            {
-                _updatingUi = false;
-            }
-            RefreshStatus(false);
-            ScheduleBrightnessReinforce(pct);
+                int pct = -1;
+                try
+                {
+                    if (!wasHdr)
+                    {
+                        DisplayControl.RememberSdrBrightness();
+                        bool enabled;
+                        DisplayControl.ToggleHdr(out enabled);
+                    }
+                    else
+                    {
+                        DisplayControl.LeaveHdrRestoringBrightness(out pct);
+                    }
+                }
+                catch { }
+                int shown = pct;
+                try
+                {
+                    if (!IsDisposed && IsHandleCreated)
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            _hdrBusy = false;
+                            _hdrStateKnown = false;
+                            if (wasHdr && shown >= 0)
+                            {
+                                _targetBright = shown;
+                                _updatingUi = true;
+                                try { _slider.SetValueSilent(shown); }
+                                finally { _updatingUi = false; }
+                                RefreshStatus(false);
+                                ScheduleBrightnessReinforce(shown);
+                            }
+                            else
+                            {
+                                _targetBright = -1;
+                                RefreshStatus();
+                            }
+                        });
+                    else
+                        _hdrBusy = false;
+                }
+                catch { _hdrBusy = false; }
+            });
         }
 
         private void ScheduleBrightnessReinforce(int percent)
         {
+            // Renforce via le thread dédié (non-bloquant) : 8 écritures
+            // espacées de 200 ms. S'arrête si l'utilisateur change la valeur
+            // entre-temps (sinon on écraserait son réglage pendant 1.6 s).
+            _reinforceGen++;
+            int gen = _reinforceGen;
             int left = 8;
             Timer t = new Timer();
             t.Interval = 200;
             t.Tick += delegate
             {
-                DisplayControl.SetBrightnessPercent(percent);
+                if (gen != _reinforceGen)
+                {
+                    t.Stop();
+                    t.Dispose();
+                    return;
+                }
+                if (_targetBright >= 0 && _targetBright != percent)
+                {
+                    t.Stop();
+                    t.Dispose();
+                    return;
+                }
+                RequestBrightnessWrite(percent);
                 left--;
                 if (left <= 0)
                 {
@@ -850,11 +1330,14 @@ namespace Hdr2Sdr
 
         private void RefreshStatus(bool syncSlider)
         {
-            FlushPendingBrightness();
-            string text = DisplayControl.StatusText();
-            _hdrOnCached = DisplayControl.IsHdrOn();
+            // Chemin UI : 100 % cache, aucun DDC (un GetMonitorBrightness sur
+            // le thread UI figeait la fenêtre). Le frais arrive en fond.
+            bool hdr;
+            int v;
+            string text = DisplayControl.StatusTextCached(out hdr, out v);
+            v = Math.Max(0, Math.Min(100, v));
+            _hdrOnCached = hdr;
             _hdrStateKnown = true;
-            int v = Math.Max(0, Math.Min(100, DisplayControl.GetBrightnessPercent()));
 
             _updatingUi = true;
             try
@@ -875,17 +1358,108 @@ namespace Hdr2Sdr
                 {
                     string tipText = text;
                     if (tipText.Length > 60) tipText = tipText.Substring(0, 60);
-                    _tray.Text = tipText;
+                    if (_hotkeyFailed.Count > 0)
+                        tipText += " ⚠";
+                    try
+                    {
+                        if (_tray.Text != tipText)
+                            _tray.Text = tipText;
+                    }
+                    catch
+                    {
+                    }
                 }
                 if (syncSlider)
                     _slider.SetValueSilent(v);
-                else
-                    _slider.SetValueSilent(_slider.Value);
+                // sinon : ne pas toucher au slider (valeur du drag en cours).
             }
             finally
             {
                 _updatingUi = false;
             }
+
+            // Relecture au lancement même si un premier cache existe : un 100 %
+            // pris sur le mauvais écran ne doit pas rester affiché.
+            // _targetBright >= 0 = l'utilisateur ou le retour HDR tient la valeur.
+            if (!hdr && _targetBright < 0 && !_hdrBusy && !_launchResyncStarted)
+            {
+                _launchResyncStarted = true;
+                QueueSdrBrightnessResync(syncSlider);
+            }
+        }
+
+        /// <summary>
+        /// Relit la vraie luminosité DDC en fond (lancement / retour SDR).
+        /// Plusieurs tentatives espacées car le DDC est souvent indisponible
+        /// juste au boot ou après un changement de mode. Ne touche à l'UI
+        /// qu'en cas de lecture réussie (jamais de 0 % d'échec).
+        /// </summary>
+        private void QueueSdrBrightnessResync(bool syncSlider)
+        {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate
+            {
+                // Délais entre tentatives (la 1re est immédiate).
+                int[] delays = new int[] { 0, 600, 1500, 3000, 6000 };
+                for (int i = 0; i < delays.Length; i++)
+                {
+                    if (delays[i] > 0)
+                    {
+                        try { System.Threading.Thread.Sleep(delays[i]); }
+                        catch { return; }
+                    }
+                    if (_writeStop)
+                        return;
+                    // L'utilisateur a pris la main entre-temps : on s'efface.
+                    if (_targetBright >= 0 || _hdrBusy)
+                        return;
+                    int fresh;
+                    bool ok;
+                    try { ok = DisplayControl.TryGetBrightnessPercentFresh(out fresh); }
+                    catch { return; }
+                    if (!ok)
+                        continue;
+                    try
+                    {
+                        if (IsDisposed || !IsHandleCreated)
+                            return;
+                        int copy = fresh;
+                        BeginInvoke((MethodInvoker)delegate
+                        {
+                            if (_targetBright >= 0 || _hdrBusy)
+                                return;
+                            _updatingUi = true;
+                            try
+                            {
+                                _bigValue.Text = copy + "%";
+                                _brightValueLabel.Text = copy + " %";
+                                if (syncSlider)
+                                    _slider.SetValueSilent(copy);
+                                _statusLine.Text = "SDR  •  luminosité " + copy + "%";
+                                UpdateProfileSelection(copy);
+                                if (_tray.Visible)
+                                {
+                                    try
+                                    {
+                                        string tip = "SDR | luminosité " + copy + "%";
+                                        if (tip.Length > 60) tip = tip.Substring(0, 60);
+                                        if (_hotkeyFailed.Count > 0)
+                                            tip += " ⚠";
+                                        if (_tray.Text != tip)
+                                            _tray.Text = tip;
+                                    }
+                                    catch { }
+                                }
+                            }
+                            finally { _updatingUi = false; }
+                        });
+                    }
+                    catch { }
+                    return;
+                }
+                // Toutes les tentatives ont échoué : on garde le 50 % "inconnu"
+                // plutôt qu'afficher un 0 % trompeur. Le prochain RefreshStatus
+                // retentera.
+            });
         }
 
         private static Icon LoadIcon()

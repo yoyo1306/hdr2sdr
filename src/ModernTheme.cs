@@ -79,34 +79,36 @@ namespace Hdr2Sdr
         public static Color IconBtnHover { get { return L() ? C(225, 225, 233) : C(45, 45, 55); } }
         public static Color IconBtnDown { get { return L() ? C(210, 210, 221) : C(55, 55, 68); } }
 
+        private static Font _fTitle, _fSubtitle, _fCardTitle, _fBody, _fSmall, _fBig;
+
         public static Font FontTitle
         {
-            get { return new Font("Segoe UI Variable Display", 15f, FontStyle.Bold); }
+            get { return _fTitle ?? (_fTitle = new Font("Segoe UI Variable Display", 15f, FontStyle.Bold)); }
         }
 
         public static Font FontSubtitle
         {
-            get { return new Font("Segoe UI", 8.5f, FontStyle.Regular); }
+            get { return _fSubtitle ?? (_fSubtitle = new Font("Segoe UI", 8.5f, FontStyle.Regular)); }
         }
 
         public static Font FontCardTitle
         {
-            get { return new Font("Segoe UI", 9f, FontStyle.Bold); }
+            get { return _fCardTitle ?? (_fCardTitle = new Font("Segoe UI", 9f, FontStyle.Bold)); }
         }
 
         public static Font FontBody
         {
-            get { return new Font("Segoe UI", 9f, FontStyle.Regular); }
+            get { return _fBody ?? (_fBody = new Font("Segoe UI", 9f, FontStyle.Regular)); }
         }
 
         public static Font FontSmall
         {
-            get { return new Font("Segoe UI", 8f, FontStyle.Regular); }
+            get { return _fSmall ?? (_fSmall = new Font("Segoe UI", 8f, FontStyle.Regular)); }
         }
 
         public static Font FontBigNumber
         {
-            get { return new Font("Segoe UI Variable Display", 34f, FontStyle.Bold); }
+            get { return _fBig ?? (_fBig = new Font("Segoe UI Variable Display", 34f, FontStyle.Bold)); }
         }
 
         public static GraphicsPath RoundedRect(Rectangle bounds, int radius)
@@ -142,11 +144,16 @@ namespace Hdr2Sdr
         {
             try
             {
+                if (c.Width - inset * 2 <= 0 || c.Height - inset * 2 <= 0)
+                    return;
                 Rectangle r = new Rectangle(inset, inset, c.Width - inset * 2, c.Height - inset * 2);
+                Region old = c.Region;
                 using (GraphicsPath p = RoundedRect(r, radius))
                 {
                     c.Region = new Region(p);
                 }
+                try { if (old != null) old.Dispose(); }
+                catch { }
             }
             catch
             {

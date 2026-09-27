@@ -6,24 +6,70 @@ using System.Windows.Forms;
 
 namespace Hdr2Sdr
 {
+    /// <summary>Version affichée (titre, tooltip tray, CLI `version`). À bumper à chaque release.</summary>
+    internal static class BuildInfo
+    {
+        public const string Version = "1.2";
+        public const string Build = "2026-09-27";
+        public const string ShortVersion = "v1.2";
+    }
+
     internal static class Program
     {
+        private static System.Threading.Mutex _instanceMutex;
+
         [STAThread]
         private static int Main(string[] args)
         {
             if (args != null && args.Length > 0)
             {
                 string cmd = args[0].Trim().ToLowerInvariant();
-                if (cmd == "--tray" || cmd == "tray")
+                if (cmd != "--tray" && cmd != "tray")
                 {
-                    return RunTray();
+                    EnsureCliOutput();
+                    return RunCli(args);
                 }
-                EnsureCliOutput();
-                return RunCli(args);
+                // "tray" / "--tray" : tombe dans le chemin GUI protégé par mutex ci-dessous.
             }
 
-            // Default: tray app (no console window — winexe)
-            return RunTray();
+            // Default: tray app (no console window — winexe).
+            // Une seule instance GUI : la 2e se ferme sans rien afficher
+            // (sinon deux trays, hotkeys en conflit et DDC instable).
+            bool createdNew = true;
+            try
+            {
+                _instanceMutex = new System.Threading.Mutex(true, "hdr2sdr-single-instance", out createdNew);
+            }
+            catch (System.Threading.AbandonedMutexException)
+            {
+                createdNew = true;
+            }
+            catch (Exception)
+            {
+                createdNew = true;
+            }
+            if (!createdNew)
+            {
+                if (_instanceMutex != null)
+                {
+                    try { _instanceMutex.Close(); }
+                    catch { }
+                    _instanceMutex = null;
+                }
+                return 0;
+            }
+
+            int rc = RunTray();
+            System.GC.KeepAlive(_instanceMutex);
+            if (_instanceMutex != null)
+            {
+                try { _instanceMutex.ReleaseMutex(); }
+                catch { }
+                try { _instanceMutex.Close(); }
+                catch { }
+                _instanceMutex = null;
+            }
+            return rc;
         }
 
         private static void EnsureCliOutput()
@@ -35,7 +81,10 @@ namespace Hdr2Sdr
                 if (AttachConsole(ATTACH_PARENT_PROCESS))
                 {
                     Stream stdout = Console.OpenStandardOutput();
-                    Console.SetOut(new StreamWriter(stdout, Encoding.Default) { AutoFlush = true });
+                    Encoding enc;
+                    try { enc = Console.OutputEncoding; }
+                    catch { enc = Encoding.UTF8; }
+                    Console.SetOut(new StreamWriter(stdout, enc) { AutoFlush = true });
                 }
             }
             catch
@@ -48,6 +97,7 @@ namespace Hdr2Sdr
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             AppConfig cfg = AppConfig.Load();
+            MonitorCatalog.SelectedDevice = cfg.MonitorDevice ?? "";
             ModernTheme.SetTheme(string.Equals(cfg.Theme, "light", StringComparison.OrdinalIgnoreCase) ? AppTheme.Light : AppTheme.Dark);
             if (cfg.StartWithWindows && !StartupHelper.IsEnabled())
                 StartupHelper.SetEnabled(true);
@@ -59,6 +109,19 @@ namespace Hdr2Sdr
         private static int RunCli(string[] args)
         {
             string cmd = args[0].Trim().ToLowerInvariant();
+            try { MonitorCatalog.SelectedDevice = AppConfig.Load().MonitorDevice ?? ""; }
+            catch { }
+
+            if (cmd == "version" || cmd == "-v" || cmd == "--version")
+            {
+                string exe;
+                try { exe = System.Reflection.Assembly.GetExecutingAssembly().Location; }
+                catch { exe = "?"; }
+                EnsureCliOutput();
+                ConsoleWrite("hdr2sdr " + BuildInfo.ShortVersion + " (build " + BuildInfo.Build + ")");
+                ConsoleWrite(exe);
+                return 0;
+            }
 
             if (cmd == "status")
             {
@@ -68,6 +131,18 @@ namespace Hdr2Sdr
 
             if (cmd == "toggle" || cmd == "hdr-toggle")
             {
+                if (DisplayControl.IsHdrOn())
+                {
+                    int pct;
+                    if (!DisplayControl.LeaveHdrRestoringBrightness(out pct))
+                    {
+                        ConsoleWrite("ERROR: unable to toggle HDR" + (DisplayControl.LastError.Length > 0 ? " | " + DisplayControl.LastError : ""));
+                        return 1;
+                    }
+                    ConsoleWrite("HDR OFF");
+                    return 0;
+                }
+                DisplayControl.RememberSdrBrightness();
                 bool on;
                 if (!DisplayControl.ToggleHdr(out on))
                 {
@@ -86,6 +161,8 @@ namespace Hdr2Sdr
                     ConsoleWrite("ERROR: HDR not supported");
                     return 1;
                 }
+                if (!t.HdrEnabled)
+                    DisplayControl.RememberSdrBrightness();
                 if (!DisplayControl.SetHdr(t, true))
                 {
                     ConsoleWrite("ERROR: set HDR on failed");
@@ -103,7 +180,8 @@ namespace Hdr2Sdr
                     ConsoleWrite("ERROR: no display");
                     return 1;
                 }
-                if (!DisplayControl.SetHdr(t, false))
+                int pct;
+                if (!DisplayControl.LeaveHdrRestoringBrightness(out pct))
                 {
                     ConsoleWrite("ERROR: set HDR off failed");
                     return 1;
@@ -158,22 +236,24 @@ namespace Hdr2Sdr
                 AppConfig cfg = AppConfig.Load();
                 string p = args[1].Trim().ToLowerInvariant();
                 string msg;
+                bool ok;
                 if (p == "jour" || p == "day")
-                    msg = Profiles.ApplyJour();
+                    ok = Profiles.ApplyJour(out msg);
                 else if (p == "soir" || p == "night" || p == "evening")
-                    msg = Profiles.ApplySoir(cfg);
+                    ok = Profiles.ApplySoir(cfg, out msg);
                 else if (p == "jeu" || p == "game")
-                    msg = Profiles.ApplyJeu(cfg);
+                    ok = Profiles.ApplyJeu(cfg, out msg);
                 else
                 {
                     ConsoleWrite("ERROR: unknown profile");
                     return 1;
                 }
                 ConsoleWrite(msg);
-                return 0;
+                return ok ? 0 : 1;
             }
 
             ConsoleWrite("hdr2sdr commands:");
+            ConsoleWrite("  version             show version + exe path");
             ConsoleWrite("  (no args)           start tray app");
             ConsoleWrite("  status              show HDR/SDR state");
             ConsoleWrite("  toggle | on | off   HDR control");

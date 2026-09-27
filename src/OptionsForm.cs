@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -9,6 +10,7 @@ namespace Hdr2Sdr
         private readonly AppConfig _cfg;
         private readonly CheckBox _chkHotkeys;
         private readonly CheckBox _chkMinimizeTray;
+        private readonly CheckBox _chkStartMinimized;
         private readonly CheckBox _chkStartup;
         private readonly TextBox _txtToggle;
         private readonly TextBox _txtUp;
@@ -17,6 +19,7 @@ namespace Hdr2Sdr
         private readonly TextBox _txtSoir;
         private readonly TextBox _txtJeu;
         private readonly Label[] _hotkeyLabels = new Label[6];
+        private readonly ComboBox _cmbMonitor;
         private Panel _header;
         private bool _dragging;
         private Point _dragOffset;
@@ -31,18 +34,38 @@ namespace Hdr2Sdr
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.None;
-            MinimumSize = new Size(452, 592);
+            MinimumSize = new Size(452, 712);
             Font = ModernTheme.FontBody;
             BackColor = ModernTheme.Bg;
-            ClientSize = new Size(452, 592);
+            ClientSize = new Size(452, 712);
             DoubleBuffered = true;
 
             BuildHeader();
 
             int y = 70;
 
+            CardPanel screen = new CardPanel();
+            screen.SetBounds(16, y, 420, 84);
+            Controls.Add(screen);
+
+            Label sTitle = SectionTitle("Écran");
+            sTitle.SetBounds(16, 12, 200, 20);
+            screen.Controls.Add(sTitle);
+
+            _cmbMonitor = new ComboBox();
+            _cmbMonitor.DropDownStyle = ComboBoxStyle.DropDownList;
+            _cmbMonitor.FlatStyle = FlatStyle.Flat;
+            _cmbMonitor.Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+            _cmbMonitor.BackColor = ModernTheme.Card2;
+            _cmbMonitor.ForeColor = ModernTheme.Text;
+            _cmbMonitor.SetBounds(16, 40, 388, 28);
+            FillMonitors(cfg.MonitorDevice);
+            screen.Controls.Add(_cmbMonitor);
+
+            y += 96;
+
             CardPanel general = new CardPanel();
-            general.SetBounds(16, y, 420, 132);
+            general.SetBounds(16, y, 420, 158);
             Controls.Add(general);
 
             Label gTitle = SectionTitle("Général");
@@ -51,18 +74,23 @@ namespace Hdr2Sdr
 
             _chkMinimizeTray = MakeCheck("Minimiser dans la zone de notification", cfg.MinimizeToTray);
             _chkMinimizeTray.SetBounds(16, 40, 388, 22);
+            _chkMinimizeTray.CheckedChanged += delegate { UpdateStartMinEnabled(); };
             general.Controls.Add(_chkMinimizeTray);
 
+            _chkStartMinimized = MakeCheck("Démarrer minimisé dans la zone de notification", cfg.StartMinimized && cfg.MinimizeToTray);
+            _chkStartMinimized.SetBounds(16, 66, 388, 22);
+            general.Controls.Add(_chkStartMinimized);
+
             _chkStartup = MakeCheck("Lancer au démarrage de Windows", StartupHelper.IsEnabled());
-            _chkStartup.SetBounds(16, 66, 388, 22);
+            _chkStartup.SetBounds(16, 92, 388, 22);
             general.Controls.Add(_chkStartup);
 
             _chkHotkeys = MakeCheck("Activer les raccourcis clavier", cfg.HotkeysEnabled);
-            _chkHotkeys.SetBounds(16, 92, 388, 22);
+            _chkHotkeys.SetBounds(16, 118, 388, 22);
             _chkHotkeys.CheckedChanged += delegate { UpdateHotkeyFieldsEnabled(); };
             general.Controls.Add(_chkHotkeys);
 
-            y += 144;
+            y += 170;
 
             CardPanel hk = new CardPanel();
             hk.SetBounds(16, y, 420, 288);
@@ -96,7 +124,6 @@ namespace Hdr2Sdr
             btnCancel.Size = new Size(150, 36);
             btnCancel.Location = new Point(130, y);
             btnCancel.DialogResult = DialogResult.Cancel;
-            btnCancel.Click += delegate { DialogResult = DialogResult.Cancel; Close(); };
             Controls.Add(btnCancel);
 
             Button btnOk = ModernTheme.MakePillButton("Enregistrer", true);
@@ -107,12 +134,13 @@ namespace Hdr2Sdr
             Controls.Add(btnOk);
 
             AcceptButton = btnOk;
-            CancelButton = null;
+            CancelButton = btnCancel;
 
             Load += delegate { ModernTheme.ApplyRounded(this, 16, 1); };
             SizeChanged += delegate { ModernTheme.ApplyRounded(this, 16, 1); };
 
             UpdateHotkeyFieldsEnabled();
+            UpdateStartMinEnabled();
         }
 
         protected override void OnHandleCreated(EventArgs e)
@@ -144,7 +172,7 @@ namespace Hdr2Sdr
             _header.Controls.Add(title);
 
             Label sub = new Label();
-            sub.Text = "Démarrage, zone de notification, raccourcis";
+            sub.Text = "Écran, démarrage, raccourcis";
             sub.Font = new Font("Segoe UI", 7.5f, FontStyle.Regular);
             sub.ForeColor = ModernTheme.TextFaint;
             sub.BackColor = Color.Transparent;
@@ -284,6 +312,18 @@ namespace Hdr2Sdr
             }
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
+
+        private static bool IsWinDown()
+        {
+            try
+            {
+                return (GetAsyncKeyState(0x5B) < 0) || (GetAsyncKeyState(0x5C) < 0);
+            }
+            catch { return false; }
+        }
+
         private static void HotkeyField_KeyDown(object sender, KeyEventArgs e)
         {
             TextBox tb = sender as TextBox;
@@ -302,14 +342,49 @@ namespace Hdr2Sdr
                 e.KeyCode == Keys.Menu || e.KeyCode == Keys.LWin || e.KeyCode == Keys.RWin)
                 return;
 
-            tb.Text = HotkeyParser.Format(e.Modifiers, e.KeyCode);
+            tb.Text = HotkeyParser.Format(e.Modifiers, e.KeyCode, IsWinDown());
+        }
+
+        private void FillMonitors(string selectedDevice)
+        {
+            List<MonitorEntry> list = MonitorCatalog.List();
+            int select = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                _cmbMonitor.Items.Add(list[i]);
+                if (!string.IsNullOrEmpty(selectedDevice) &&
+                    string.Equals(list[i].DeviceName, selectedDevice, StringComparison.OrdinalIgnoreCase))
+                    select = i;
+                else if (string.IsNullOrEmpty(selectedDevice) && list[i].Primary)
+                    select = i;
+            }
+            if (_cmbMonitor.Items.Count == 0)
+            {
+                MonitorEntry none = new MonitorEntry();
+                none.DeviceName = "";
+                none.Label = "Aucun écran détecté";
+                _cmbMonitor.Items.Add(none);
+            }
+            if (_cmbMonitor.Items.Count > 0)
+                _cmbMonitor.SelectedIndex = select;
+        }
+
+        private void UpdateStartMinEnabled()
+        {
+            bool tray = _chkMinimizeTray.Checked;
+            _chkStartMinimized.Enabled = tray;
+            if (!tray)
+                _chkStartMinimized.Checked = false;
         }
 
         private void Apply()
         {
             _cfg.MinimizeToTray = _chkMinimizeTray.Checked;
+            _cfg.StartMinimized = _chkStartMinimized.Checked && _chkMinimizeTray.Checked;
             _cfg.StartWithWindows = _chkStartup.Checked;
             _cfg.HotkeysEnabled = _chkHotkeys.Checked;
+            MonitorEntry mon = _cmbMonitor.SelectedItem as MonitorEntry;
+            _cfg.MonitorDevice = mon != null ? (mon.DeviceName ?? "") : "";
             _cfg.HotkeyToggleHdr = _txtToggle.Text.Trim();
             _cfg.HotkeySdrUp = _txtUp.Text.Trim();
             _cfg.HotkeySdrDown = _txtDown.Text.Trim();
