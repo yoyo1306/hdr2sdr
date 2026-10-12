@@ -6,6 +6,8 @@ Utilitaire **Windows 11** pour basculer rapidement **HDR ↔ SDR** et régler la
 
 Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Black 400), utile dès que le HDR Windows rend le bureau trop sombre ou trop pénible à gérer.
 
+![hdr2sdr - interface principale](assets/screenshot.png)
+
 ## Fonctionnalités
 
 - Basculer **HDR / SDR** (API Win11 24H2)
