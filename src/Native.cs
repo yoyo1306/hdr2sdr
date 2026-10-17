@@ -286,6 +286,16 @@ namespace Hdr2Sdr
             ref uint pdwCurrentBrightness,
             ref uint pdwMaximumBrightness);
 
+        // VCP 0x10 (luminosité). GetMonitorBrightness reste en cache dans
+        // dxva2 et ne voit pas le bouton physique de l'écran.
+        [DllImport("dxva2.dll", SetLastError = true)]
+        public static extern bool GetVCPFeatureAndVCPFeatureReply(
+            IntPtr hMonitor,
+            byte bVCPCode,
+            ref uint pvct,
+            ref uint pdwCurrentValue,
+            ref uint pdwMaximumValue);
+
         [DllImport("dxva2.dll", SetLastError = true)]
         public static extern bool SetMonitorBrightness(IntPtr hPhysicalMonitor, uint dwNewBrightness);
 

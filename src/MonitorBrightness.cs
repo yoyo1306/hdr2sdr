@@ -123,7 +123,30 @@ namespace Hdr2Sdr
                 int previous = _cachedPercent;
                 _cachedPercent = -1;
                 ClosePhysical_NoLock();
-                bool ok = TryGetPercentFresh_NoLock(out percent, previous);
+                bool ok = TryGetPercentFresh_NoLock(out percent);
+                if (!ok)
+                    _cachedPercent = previous;
+                return ok;
+            }
+        }
+
+        /// <summary>
+        /// Luminosité réelle du moniteur physique déjà ouvert pour l'écran
+        /// choisi (VCP 0x10). Ne passe pas par GetMonitorBrightness, dont
+        /// dxva2 garde la valeur jusqu'au redémarrage du processus.
+        /// N'écrit rien et ne change pas l'écran ciblé.
+        /// </summary>
+        public static bool TryReadVcpPercent(out int percent)
+        {
+            lock (Sync)
+            {
+                percent = 0;
+                // Une rafale d'écriture tient le handle : ne pas le fermer.
+                if (_hold > 0)
+                    return false;
+                int previous = _cachedPercent;
+                ClosePhysical_NoLock();
+                bool ok = TryGetPercentFresh_NoLock(out percent);
                 if (!ok)
                     _cachedPercent = previous;
                 return ok;
@@ -132,40 +155,32 @@ namespace Hdr2Sdr
 
         private static bool TryGetPercentFresh_NoLock(out int percent)
         {
-            return TryGetPercentFresh_NoLock(out percent, _cachedPercent);
-        }
-
-        private static bool TryGetPercentFresh_NoLock(out int percent, int previous)
-        {
             percent = 0;
             if (!EnsureOpen_NoLock())
                 return false;
 
-            uint min = 0, cur = 0, max = 0;
-            if (!Native.GetMonitorBrightness(_monitors[0].hPhysicalMonitor, ref min, ref cur, ref max))
+            uint vct = 0, cur = 0, max = 0;
+            bool ok = false;
+            try
             {
-                CloseUnlessHeld_NoLock();
-                return false;
+                ok = Native.GetVCPFeatureAndVCPFeatureReply(
+                    _monitors[0].hPhysicalMonitor, 0x10, ref vct, ref cur, ref max);
             }
-            if (max <= min)
+            catch
+            {
+                ok = false;
+            }
+            if (!ok || max == 0)
             {
                 CloseUnlessHeld_NoLock();
                 return false;
             }
 
-            if (cur >= max && previous >= 0 && previous < 97)
-            {
-                CloseUnlessHeld_NoLock();
-                percent = previous;
-                _cachedPercent = previous;
-                return true;
-            }
-
-            _min = min;
-            _max = max;
-            _rangeReady = true;
-            percent = ToPercent(cur);
-            _cachedPercent = percent;
+            int pct = (int)Math.Round(cur * 100.0 / max);
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            percent = pct;
+            _cachedPercent = pct;
             CloseUnlessHeld_NoLock();
             return true;
         }

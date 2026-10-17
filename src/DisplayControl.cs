@@ -108,6 +108,23 @@ namespace Hdr2Sdr
             return false;
         }
 
+        /// <summary>
+        /// Lecture VCP 0x10 du moniteur déjà choisi. Hors cache dxva2.
+        /// False si illisible : l'appelant ne doit pas afficher 0 %.
+        /// </summary>
+        public static bool TryReadHardwarePercent(out int percent)
+        {
+            int pct;
+            if (MonitorBrightness.TryReadVcpPercent(out pct))
+            {
+                _lastSdrHardwarePercent = pct;
+                percent = pct;
+                return true;
+            }
+            percent = 0;
+            return false;
+        }
+
         public static bool SetBrightnessPercent(int percent)
         {
             LastError = "";

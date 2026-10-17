@@ -6,6 +6,18 @@ Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 
 ## [Unreleased]
 
+## [1.3] - 2026-10-17
+
+### Modifié
+- Version affichée en bas à droite (`v1.3`)
+
+### Corrigé
+- Le pourcentage de luminosité restait figé après un réglage avec le bouton
+  physique de l'écran : `GetMonitorBrightness` garde la valeur en cache
+  jusqu'au redémarrage du logiciel. La lecture passe par le code VCP 0x10
+  du moniteur déjà choisi, environ toutes les 0,4 s tant que la fenêtre
+  est ouverte, hors du thread de l'interface. Rien n'est écrit sur l'écran.
+
 ## [1.2] - 2026-09-27
 
 ### Ajouté
@@ -112,6 +124,7 @@ Première version publique.
 - Profil Soir : HDR ON + SDR 0 %
 - Profil Jeu : HDR ON + SDR 80 % (ajustable via config)
 
+[1.3]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.3
 [1.2]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.2
 [1.1.1]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.1.1
 [1.1.0]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.1.0

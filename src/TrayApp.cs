@@ -92,6 +92,10 @@ namespace Hdr2Sdr
         private readonly System.Threading.AutoResetEvent _writeEvent = new System.Threading.AutoResetEvent(false);
         private System.Threading.Thread _writeThread;
         private volatile bool _writeStop;
+        private System.Threading.Thread _vcpThread;
+        private volatile bool _vcpStop;
+        private volatile bool _windowOpen;
+        private volatile int _vcpQuietUntil;
         private int _writePending = -1;
         private int _lastWriteTick;
         private int _targetBright = -1;
@@ -173,10 +177,17 @@ namespace Hdr2Sdr
             RegisterHotkeys();
 
             _lastWriteTick = System.Environment.TickCount;
+            _vcpQuietUntil = System.Environment.TickCount;
             _writeThread = new System.Threading.Thread(BrightnessWriter);
             _writeThread.IsBackground = true;
             _writeThread.Name = "hdr2sdr-brightness";
             _writeThread.Start();
+
+            VisibleChanged += delegate { _windowOpen = Visible; };
+            _vcpThread = new System.Threading.Thread(VcpBrightnessPoller);
+            _vcpThread.IsBackground = true;
+            _vcpThread.Name = "hdr2sdr-vcp";
+            _vcpThread.Start();
 
             Resize += MainForm_Resize;
             FormClosing += MainForm_FormClosing;
@@ -651,7 +662,14 @@ namespace Hdr2Sdr
             _hotkeyAssertTimer.Stop();
             _hotkeyAssertTimer.Dispose();
             _writeStop = true;
+            _vcpStop = true;
+            _windowOpen = false;
             _writeEvent.Set();
+            if (_vcpThread != null)
+            {
+                _vcpThread.Join(1500);
+                _vcpThread = null;
+            }
             if (_writeThread != null)
             {
                 _writeThread.Join(1500);
@@ -943,6 +961,7 @@ namespace Hdr2Sdr
             if (_hdrBusy)
                 return;
             _hdrBusy = true;
+            _vcpQuietUntil = unchecked(System.Environment.TickCount + 4000);
             CancelPendingBrightness();
             System.Threading.ThreadPool.QueueUserWorkItem(delegate
             {
@@ -1007,6 +1026,7 @@ namespace Hdr2Sdr
         private void RequestBrightnessWrite(int percent)
         {
             _targetBright = percent;
+            _vcpQuietUntil = unchecked(System.Environment.TickCount + 2000);
             lock (_writeSync)
             {
                 _writePending = percent;
@@ -1175,6 +1195,7 @@ namespace Hdr2Sdr
                 return;
             }
             _hdrBusy = true;
+            _vcpQuietUntil = unchecked(System.Environment.TickCount + 4000);
             // Optimiste : reflète l'état voulu tout de suite, le worker confirme.
             _hdrOnCached = wantOn;
             _hdrStateKnown = true;
@@ -1236,6 +1257,7 @@ namespace Hdr2Sdr
             FlushPendingBrightness();
             bool wasHdr = DisplayControl.IsHdrOn();
             _hdrBusy = true;
+            _vcpQuietUntil = unchecked(System.Environment.TickCount + 4000);
             _hdrOnCached = !wasHdr;
             _hdrStateKnown = true;
             _updatingUi = true;
@@ -1321,6 +1343,88 @@ namespace Hdr2Sdr
                 }
             };
             t.Start();
+        }
+
+        /// <summary>
+        /// Tant que la fenêtre est ouverte, relit le VCP 0x10 hors du thread
+        /// UI (environ 0,4 s) et affiche le pourcentage dès qu'il change.
+        /// Plus court, la liaison DDC reste occupée et gêne le curseur.
+        /// </summary>
+        private void VcpBrightnessPoller()
+        {
+            const int period = 400;
+            int waited = period;
+            while (!_vcpStop)
+            {
+                if (!_windowOpen)
+                {
+                    System.Threading.Thread.Sleep(100);
+                    waited = period;
+                    continue;
+                }
+                if (waited < period)
+                {
+                    System.Threading.Thread.Sleep(100);
+                    waited += 100;
+                    continue;
+                }
+                waited = 0;
+                if (_vcpStop || !_windowOpen)
+                    continue;
+                if (unchecked(System.Environment.TickCount - _vcpQuietUntil) < 0)
+                    continue;
+                if (_hdrBusy)
+                    continue;
+
+                bool hdr;
+                try { hdr = DisplayControl.IsHdrOn(); }
+                catch { continue; }
+                if (hdr)
+                    continue;
+
+                int pct;
+                bool ok;
+                try { ok = DisplayControl.TryReadHardwarePercent(out pct); }
+                catch { continue; }
+                if (!ok)
+                    continue;
+
+                int copy = pct;
+                try
+                {
+                    if (IsDisposed || !IsHandleCreated)
+                        return;
+                    BeginInvoke((MethodInvoker)delegate
+                    {
+                        if (_vcpStop || !_windowOpen || _hdrBusy || _updatingUi)
+                            return;
+                        if (unchecked(System.Environment.TickCount - _vcpQuietUntil) < 0)
+                            return;
+                        int pending;
+                        lock (_writeSync)
+                        {
+                            pending = _writePending;
+                        }
+                        if (pending >= 0)
+                            return;
+                        if (DisplayControl.IsHdrOn())
+                            return;
+                        if (_slider.Value == copy && _bigValue.Text == copy + "%" && !_hdrOnCached)
+                            return;
+                        _hdrOnCached = false;
+                        _hdrStateKnown = true;
+                        // Valeur venue du bouton de l'écran : on l'affiche,
+                        // sans la réécrire. Un renfort HDR en cours s'arrête
+                        // parce que la cible n'est plus celle qu'il poussait.
+                        _targetBright = copy;
+                        UpdateBrightnessStatusText(copy);
+                    });
+                }
+                catch
+                {
+                    return;
+                }
+            }
         }
 
         private void RefreshStatus()
@@ -1414,7 +1518,7 @@ namespace Hdr2Sdr
                         return;
                     int fresh;
                     bool ok;
-                    try { ok = DisplayControl.TryGetBrightnessPercentFresh(out fresh); }
+                    try { ok = DisplayControl.TryReadHardwarePercent(out fresh); }
                     catch { return; }
                     if (!ok)
                         continue;
