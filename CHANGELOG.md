@@ -6,6 +6,21 @@ Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 
 ## [Unreleased]
 
+## [1.4] - 2026-10-17
+
+### Ajouté
+- Animation de réduction vers la barre des tâches, avec les coins arrondis
+  conservés
+
+### Modifié
+- Version affichée en bas à droite (`v1.4`)
+- « Minimiser dans la zone de notification » envoie la fenêtre directement
+  dans la zone de notification, sans s'arrêter sur la barre des tâches
+
+### Corrigé
+- Bords de la fenêtre : plus d'angle noir ni de bande transparente autour
+  des coins
+
 ## [1.3] - 2026-10-17
 
 ### Modifié
@@ -124,6 +139,7 @@ Première version publique.
 - Profil Soir : HDR ON + SDR 0 %
 - Profil Jeu : HDR ON + SDR 80 % (ajustable via config)
 
+[1.4]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.4
 [1.3]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.3
 [1.2]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.2
 [1.1.1]: https://github.com/yoyo1306/hdr2sdr/releases/tag/v1.1.1

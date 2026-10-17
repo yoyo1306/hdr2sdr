@@ -9,9 +9,9 @@ namespace Hdr2Sdr
     /// <summary>Version affichée (titre, tooltip tray, CLI `version`). À bumper à chaque release.</summary>
     internal static class BuildInfo
     {
-        public const string Version = "1.3";
+        public const string Version = "1.4";
         public const string Build = "2026-10-17";
-        public const string ShortVersion = "v1.3";
+        public const string ShortVersion = "v1.4";
     }
 
     internal static class Program

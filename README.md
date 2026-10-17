@@ -24,7 +24,7 @@ Pensé pour les écrans OLED (ex. Philips Evnia 27M2N8500 / DisplayHDR True Blac
 
 ## Installation
 
-1. Télécharge la dernière release (`hdr2sdr-v1.3.zip`)
+1. Télécharge la dernière release (`hdr2sdr-v1.4.zip`)
 2. Extrais et lance `hdr2sdr.exe`
 3. (Optionnel) coche « Lancer au démarrage » dans Options (engrenage)
 

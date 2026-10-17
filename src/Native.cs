@@ -308,7 +308,11 @@ namespace Hdr2Sdr
         [DllImport("dwmapi.dll", EntryPoint = "#171", CallingConvention = CallingConvention.StdCall)]
         public static extern int DwmpSDRToHDRBoost(IntPtr hMonitor, double brightness);
 
+        public const uint DWMWA_NCRENDERING_POLICY = 2;
         public const uint DWMWA_BORDER_COLOR = 34;
+        public const uint DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+        const uint DWMNCRP_DISABLED = 2;
+        const uint DWMWCP_DONOTROUND = 1;
 
         [DllImport("dwmapi.dll")]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, uint dwAttribute, ref uint pvAttribute, uint cbAttribute);
@@ -319,6 +323,23 @@ namespace Hdr2Sdr
             {
                 uint colorref = (uint)(c.B << 16 | c.G << 8 | c.R);
                 DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ref colorref, 4);
+            }
+            catch
+            {
+            }
+        }
+
+        public static void SetRoundedCorners(IntPtr hwnd)
+        {
+            try
+            {
+                // Le coin système (~8 px) ne coïncide pas avec la région 18 px :
+                // une bande transparente apparaît entre les deux. On laisse
+                // uniquement la région arrondir. L'animation de réduction reste.
+                uint policy = DWMNCRP_DISABLED;
+                DwmSetWindowAttribute(hwnd, DWMWA_NCRENDERING_POLICY, ref policy, 4);
+                uint pref = DWMWCP_DONOTROUND;
+                DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, 4);
             }
             catch
             {

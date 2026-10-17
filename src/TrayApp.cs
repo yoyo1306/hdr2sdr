@@ -128,7 +128,10 @@ namespace Hdr2Sdr
             _cfg = cfg;
 
             Text = "hdr2sdr";
-            FormBorderStyle = FormBorderStyle.None;
+            // FixedSingle (pas None) : Windows peut jouer l'animation de
+            // réduction vers la barre des tâches, comme Lumino et le Centre.
+            // Le cadre est retiré dans WndProc (WM_NCCALCSIZE).
+            FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             // true SANS menu visible (borderless) mais requis pour que le clic
             // sur l'icône de la barre des tâches minimise/restaure la fenêtre.
@@ -245,6 +248,8 @@ namespace Hdr2Sdr
             };
             SizeChanged += delegate
             {
+                if (WindowState != FormWindowState.Normal)
+                    return;
                 ModernTheme.ApplyRounded(this, 18, 1);
             };
         }
@@ -264,11 +269,17 @@ namespace Hdr2Sdr
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            // Le style qui permet l'animation agrandit la fenêtre du cadre.
+            // On la reverrouille à la taille d'origine, cadre déjà retiré.
+            Size = new Size(400, 568);
+            MinimumSize = new Size(400, 568);
+            MaximumSize = new Size(400, 568);
             // Fenêtre arrondie (région en retrait d'1px) + liseré DWM à la
             // couleur du thème. La région est réappliquée car le handle est
             // recréé (ex. minimise/restore via le tray).
             ModernTheme.ApplyRounded(this, 18, 1);
             Native.SetBorderColor(Handle, ModernTheme.Bg);
+            Native.SetRoundedCorners(Handle);
             // Recréation de handle (veille, changement d'écran, reboot
             // du driver) : la table des hotkeys peut avoir été vidée.
             // Ré-affirme sans bloquer la création du handle.
@@ -278,6 +289,53 @@ namespace Hdr2Sdr
 
         protected override void WndProc(ref Message m)
         {
+            const int WM_NCCALCSIZE = 0x0083;
+            const int WM_NCPAINT = 0x0085;
+            const int WM_NCACTIVATE = 0x0086;
+            const int WM_SYSCOMMAND = 0x0112;
+            const int SC_MINIMIZE = 0xF020;
+            const int WM_SIZE = 0x0005;
+            const int SIZE_RESTORED = 0;
+
+            // Zone de notification : on n'envoie pas la fenêtre sur la barre
+            // des tâches. Sans la coche, Windows joue l'animation habituelle.
+            if (m.Msg == WM_SYSCOMMAND && ((int)m.WParam & 0xFFF0) == SC_MINIMIZE)
+            {
+                if (_cfg.MinimizeToTray)
+                {
+                    HideToTray();
+                    m.Result = IntPtr.Zero;
+                    return;
+                }
+            }
+
+            // Cadre Windows retiré : la fenêtre reste borderless, mais le
+            // style FixedSingle laisse DWM animer la réduction.
+            // On ne retire pas la région arrondie : sinon l'animation
+            // part d'un rectangle à angles droits.
+            if (m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+            {
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_NCPAINT)
+            {
+                m.Result = IntPtr.Zero;
+                return;
+            }
+            if (m.Msg == WM_NCACTIVATE)
+            {
+                m.Result = (IntPtr)1;
+                return;
+            }
+            if (m.Msg == WM_SIZE && m.WParam.ToInt32() == SIZE_RESTORED)
+            {
+                base.WndProc(ref m);
+                if (WindowState == FormWindowState.Normal)
+                    ModernTheme.ApplyRounded(this, 18, 1);
+                return;
+            }
+
             // La topologie d'affichage a changé (boot, veille, dock, HDR) :
             // le handle DDC peut être périmé, on le rouvrira au prochain accès.
             if (m.Msg == 0x007E)
@@ -373,7 +431,7 @@ namespace Hdr2Sdr
 
             Button btnMin = ModernTheme.MakeIconButton("–", 12);
             btnMin.SetBounds(318, 14, 34, 34);
-            btnMin.Click += delegate { WindowState = FormWindowState.Minimized; };
+            btnMin.Click += delegate { PostMessage(Handle, 0x0112, (IntPtr)0xF020, IntPtr.Zero); };
             tip.SetToolTip(btnMin, "Réduire");
             _header.Controls.Add(btnMin);
 
@@ -626,9 +684,11 @@ namespace Hdr2Sdr
                 return;
             if (!_cfg.MinimizeToTray)
                 return;
-
             HideToTray();
         }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         private void HideToTray()
         {
