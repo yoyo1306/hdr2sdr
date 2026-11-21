@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="Hdr2Sdr.Core/Hdr2Sdr.Core.csproj">
+    <Platform Project="x64" />
+  </Project>
+  <Project Path="Hdr2Sdr.App/Hdr2Sdr.App.csproj">
+    <Platform Project="x64" />
+  </Project>
+</Solution>

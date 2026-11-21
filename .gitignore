@@ -1,8 +1,18 @@
-dist/
-release/
-*.user
-*.suo
-.vs/
+# Build & publish outputs
 bin/
 obj/
-*.pdb
+publish/
+dist/
+src/**/bin/
+src/**/obj/
+*.exe
+
+# Local runtime config & logs
+config.ini
+hdr2sdr-last.txt
+hdr-hk-log.txt
+
+# IDE
+.vs/
+*.user
+*.suo

@@ -1,103 +1,51 @@
-$ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$src = Join-Path $root "src"
-$dist = Join-Path $root "dist"
-$assets = Join-Path $root "assets"
-$csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-
-if (-not (Test-Path $csc)) {
-  throw "csc.exe introuvable: $csc"
-}
-
-New-Item -ItemType Directory -Path $dist, $assets -Force | Out-Null
-
-# Icon (optional - ne fait jamais échouer le build)
-$iconPy = Join-Path $root "tools\make_icon.py"
-if (Test-Path $iconPy) {
-  try {
-    $py = Get-Command python -ErrorAction Stop
-    & $py.Source "$iconPy"
-    if ($LASTEXITCODE -ne 0) { Write-Warning "make_icon.py exit=$LASTEXITCODE (icône ignorée)" }
-  } catch {
-    Write-Warning "python indisponible, icône existante conservée ($_)"
-  }
-}
-
-$iconIco = Join-Path $assets "hdr2sdr.ico"
-$win32icon = ""
-if (Test-Path $iconIco) {
-  $win32icon = "/win32icon:`"$iconIco`""
-  Copy-Item $iconIco (Join-Path $dist "hdr2sdr.ico") -Force
-}
-
-$sources = Get-ChildItem $src -Filter "*.cs" | ForEach-Object { "`"$($_.FullName)`"" }
-$out = Join-Path $dist "hdr2sdr.exe"
-
-$args = @(
-  "/nologo",
-  "/target:winexe",
-  "/platform:anycpu",
-  "/optimize+",
-  "/out:`"$out`"",
-  "/reference:System.dll",
-  "/reference:System.Core.dll",
-  "/reference:System.Drawing.dll",
-  "/reference:System.Windows.Forms.dll"
+param(
+    [switch]$SkipInstaller
 )
-if ($win32icon) { $args += $win32icon }
-$args += $sources
 
-Write-Host "Compiling hdr2sdr..."
-& $csc @args
-if ($LASTEXITCODE -ne 0) { throw "Compilation failed ($LASTEXITCODE)" }
+$ErrorActionPreference = "Stop"
+$Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $Root
 
-# Silent launcher helpers for shortcuts / Autohotkey / Stream Deck
-$helpers = Join-Path $dist "helpers"
-New-Item -ItemType Directory -Path $helpers -Force | Out-Null
+$PublishDir = Join-Path $Root "publish"
+$DistDir = Join-Path $Root "dist"
 
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" toggle", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "toggle-hdr.vbs") -Encoding ASCII
+Write-Host "[1/4] Nettoyage du dossier publish..." -ForegroundColor Cyan
+if (Test-Path $PublishDir) { Remove-Item -Recurse -Force $PublishDir }
+New-Item -ItemType Directory -Force $PublishDir | Out-Null
 
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" sdr up", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "sdr-up.vbs") -Encoding ASCII
+Write-Host "[2/4] Publication de hdr2sdr (WinUI 3 / .NET 10, self-contained win-x64)..." -ForegroundColor Cyan
+dotnet publish "src\Hdr2Sdr.App\Hdr2Sdr.App.csproj" `
+    -c Release -r win-x64 --self-contained true `
+    -p:Platform=x64 `
+    -p:WindowsAppSDKSelfContained=true `
+    -p:DebugType=none -p:DebugSymbols=false `
+    -o $PublishDir
+if ($LASTEXITCODE -ne 0) { throw "Echec publication Hdr2Sdr.App" }
 
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" sdr down", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "sdr-down.vbs") -Encoding ASCII
+Write-Host "[3/4] Nettoyage des langues satellites et copie des ressources..." -ForegroundColor Cyan
+$KeepDirs = @("fr", "fr-FR", "en", "en-US", "Microsoft.UI.Xaml", "helpers")
+Get-ChildItem -Path $PublishDir -Directory | Where-Object { $KeepDirs -notcontains $_.Name } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" profile jour", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "profile-jour.vbs") -Encoding ASCII
+Copy-Item -Force "hdr2sdr.ico" (Join-Path $PublishDir "hdr2sdr.ico")
+if (Test-Path "helpers") {
+    Copy-Item -Recurse -Force "helpers" (Join-Path $PublishDir "helpers")
+}
+if (Test-Path "README.md") { Copy-Item -Force "README.md" (Join-Path $PublishDir "README.md") }
+if (Test-Path "CHANGELOG.md") { Copy-Item -Force "CHANGELOG.md" (Join-Path $PublishDir "CHANGELOG.md") }
 
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" profile soir", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "profile-soir.vbs") -Encoding ASCII
-
-@"
-Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run """$out"" profile jeu", 0, False
-"@ | Set-Content -Path (Join-Path $helpers "profile-jeu.vbs") -Encoding ASCII
-
-Write-Host "OK -> $out"
-Write-Host "Helpers -> $helpers"
-
-# Start Menu shortcut (updated on every build)
-$startDir = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
-New-Item -ItemType Directory -Path $startDir -Force | Out-Null
-$lnkPath = Join-Path $startDir "hdr2sdr.lnk"
-$wsh = New-Object -ComObject WScript.Shell
-$lnk = $wsh.CreateShortcut($lnkPath)
-$lnk.TargetPath = $out
-$lnk.WorkingDirectory = $dist
-$lnk.Description = "hdr2sdr - HDR / SDR / luminosité"
-if (Test-Path $iconIco) { $lnk.IconLocation = "$iconIco,0" }
-else { $lnk.IconLocation = "$out,0" }
-$lnk.Save()
-Write-Host "Start Menu -> $lnkPath"
+if (-not $SkipInstaller) {
+    Write-Host "[4/4] Compilation de l'installateur Inno Setup 6..." -ForegroundColor Cyan
+    $IsccCandidates = @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        "C:\Program Files\Inno Setup 6\ISCC.exe"
+    )
+    $Iscc = $IsccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    if (-not $Iscc) {
+        throw "Inno Setup 6 (ISCC.exe) introuvable. Installe-le via : winget install JRSoftware.InnoSetup"
+    }
+    New-Item -ItemType Directory -Force $DistDir | Out-Null
+    & $Iscc (Join-Path $Root "installer\hdr2sdr.iss")
+    if ($LASTEXITCODE -ne 0) { throw "Echec compilation Inno Setup" }
+    Write-Host "Installateur pret dans dist\" -ForegroundColor Green
+}
