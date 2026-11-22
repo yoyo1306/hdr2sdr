@@ -1,5 +1,5 @@
-; Installateur Windows 11 — hdr2sdr (WinUI 3 / .NET 10 self-contained)
-#define MyAppName "hdr2sdr"
+; Installateur Windows 11 — Hdr2sdr (WinUI 3 / .NET 10 self-contained)
+#define MyAppName "Hdr2sdr"
 #define MyAppVersion "2.0.0"
 #define MyAppPublisher "yoyo1306"
 #define MyAppURL "https://github.com/yoyo1306/hdr2sdr"
@@ -52,8 +52,9 @@ Source: "..\publish\*"; DestDir: "{app}"; Excludes: "config.ini"; Flags: ignorev
 Source: "..\publish\config.ini"; DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 
 [InstallDelete]
-; Nettoie un éventuel ancien sous-dossier Menu Démarrer (v2.0.0 précédente) ou raccourci utilisateur v1.4
+; Nettoie un éventuel ancien sous-dossier ou raccourci minuscule hdr2sdr.lnk
 Type: filesandordirs; Name: "{commonprograms}\hdr2sdr"
+Type: files; Name: "{commonprograms}\hdr2sdr.lnk"
 Type: files; Name: "{userprograms}\hdr2sdr.lnk"
 
 [Icons]

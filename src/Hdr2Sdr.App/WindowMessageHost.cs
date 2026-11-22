@@ -68,7 +68,7 @@ public sealed class WindowMessageHost : IDisposable
     private bool _wtsRegistered;
     private bool _disposed;
 
-    private string _tooltip = "hdr2sdr";
+    private string _tooltip = "Hdr2sdr";
     private bool _hdrOn;
     private int _soirPercent;
     private int _jeuPercent = 80;
@@ -295,7 +295,7 @@ public sealed class WindowMessageHost : IDisposable
 
         try
         {
-            AppendMenuW(menu, MF_STRING, CMD_OPEN, "Ouvrir hdr2sdr");
+            AppendMenuW(menu, MF_STRING, CMD_OPEN, "Ouvrir Hdr2sdr");
             AppendMenuW(menu, MF_STRING, CMD_TOGGLE_HDR, _hdrOn ? "Basculer SDR (HDR OFF)" : "Basculer HDR (HDR ON)");
             AppendMenuW(menu, MF_SEPARATOR, 0, null);
             AppendMenuW(menu, MF_STRING | (!_hdrOn ? MF_CHECKED : 0u), CMD_PROFILE_JOUR, "Profil Jour (SDR natif)");

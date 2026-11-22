@@ -475,8 +475,8 @@ public sealed partial class MainWindow : Window
                 : $"{baseStatus}  •  ⚠ {_warningText}";
 
             string trayTip = _hdrOn
-                ? $"hdr2sdr — HDR ON | SDR {_currentPercent} %"
-                : $"hdr2sdr — SDR | luminosité {_currentPercent} %";
+                ? $"Hdr2sdr — HDR ON | SDR {_currentPercent} %"
+                : $"Hdr2sdr — SDR | luminosité {_currentPercent} %";
             _host.UpdateTrayState(trayTip, _hdrOn, _cfg.ProfileSoirSdrPercent, _cfg.ProfileJeuSdrPercent);
 
             UpdateDynamicVisuals();

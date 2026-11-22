@@ -1,4 +1,4 @@
-# hdr2sdr
+# Hdr2sdr
 
 Application Windows 11 (**WinUI 3 / .NET 10**) pour basculer entre **HDR** et **SDR**, régler la luminosité contextuelle (**luminosité du contenu SDR** en HDR, **luminosité matérielle DDC/CI** en SDR) et appliquer des profils en un clic ou via raccourcis clavier globaux.
 

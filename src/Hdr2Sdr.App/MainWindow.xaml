@@ -2,7 +2,7 @@
     x:Class="Hdr2Sdr.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="hdr2sdr">
+    Title="Hdr2sdr">
 
     <Grid
         x:Name="RootGrid"
@@ -30,7 +30,7 @@
                         Height="18"
                         VerticalAlignment="Center" />
                     <TextBlock
-                        Text="hdr2sdr"
+                        Text="Hdr2sdr"
                         FontSize="13"
                         FontWeight="SemiBold"
                         VerticalAlignment="Center"
