@@ -64,6 +64,7 @@ public sealed class WindowMessageHost : IDisposable
 
     private IntPtr _hwnd;
     private IntPtr _hIcon;
+    private bool _trayWanted;
     private bool _trayAdded;
     private bool _wtsRegistered;
     private bool _disposed;
@@ -115,10 +116,23 @@ public sealed class WindowMessageHost : IDisposable
         }
 
         LoadIcon(iconPath);
-        AddTrayIcon();
     }
 
     public IntPtr Handle => _hwnd;
+
+    public void SetTrayVisible(bool visible)
+    {
+        _trayWanted = visible;
+        if (visible)
+        {
+            if (!_trayAdded)
+                AddTrayIcon();
+        }
+        else
+        {
+            RemoveTrayIcon();
+        }
+    }
 
     public bool RegisterHotkey(int id, string? chord, bool allowRepeat, out int win32Error)
     {
@@ -259,7 +273,8 @@ public sealed class WindowMessageHost : IDisposable
         if (_taskbarCreatedMsg != 0 && msg == _taskbarCreatedMsg)
         {
             _trayAdded = false;
-            AddTrayIcon();
+            if (_trayWanted)
+                AddTrayIcon();
             return IntPtr.Zero;
         }
 

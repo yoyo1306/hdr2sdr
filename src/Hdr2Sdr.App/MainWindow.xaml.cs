@@ -110,11 +110,13 @@ public sealed partial class MainWindow : Window
         if (startHidden)
         {
             _windowVisible = false;
+            _host.SetTrayVisible(true);
             _appWindow.Hide();
         }
         else
         {
             _windowVisible = true;
+            _host.SetTrayVisible(false);
             Activate();
             CenterOnPrimaryDisplay();
         }
@@ -1124,12 +1126,14 @@ public sealed partial class MainWindow : Window
     private void HideToTray()
     {
         _windowVisible = false;
+        _host.SetTrayVisible(true);
         _appWindow.Hide();
     }
 
     private void RestoreFromTray()
     {
         _windowVisible = true;
+        _host.SetTrayVisible(false);
         _appWindow.Show();
         if (_appWindow.Presenter is OverlappedPresenter p && p.State == OverlappedPresenterState.Minimized)
             p.Restore();
