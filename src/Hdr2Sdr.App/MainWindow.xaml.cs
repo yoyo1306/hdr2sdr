@@ -89,6 +89,15 @@ public sealed partial class MainWindow : Window
         _appWindow.Closing += AppWindow_Closing;
         _appWindow.Changed += AppWindow_Changed;
 
+        RootGrid.AddHandler(
+            UIElement.PointerPressedEvent,
+            new PointerEventHandler(RootGrid_PointerPressed),
+            handledEventsToo: true);
+        RootGrid.AddHandler(
+            UIElement.KeyUpEvent,
+            new KeyEventHandler(RootGrid_KeyUp),
+            handledEventsToo: true);
+
         FooterVersionText.Text = BuildInfo.ShortVersion;
 
         ApplyTheme();
@@ -900,6 +909,68 @@ public sealed partial class MainWindow : Window
 
         UpdateProfileLabels();
         UpdateDynamicVisuals();
+    }
+
+    private void NumberBox_KeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            DismissNumberBoxFocus();
+            e.Handled = true;
+        }
+    }
+
+    private void RootGrid_KeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        if (_optionsOpen && e.Key == VirtualKey.Enter && IsAnyNumberBoxFocused())
+            DismissNumberBoxFocus();
+    }
+
+    private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_optionsOpen)
+            return;
+
+        if (e.OriginalSource is DependencyObject src && IsInsideInteractiveOptionControl(src))
+            return;
+
+        DismissNumberBoxFocus();
+    }
+
+    private bool IsAnyNumberBoxFocused() =>
+        RootGrid.XamlRoot is not null
+        && FocusManager.GetFocusedElement(RootGrid.XamlRoot) is DependencyObject focused
+        && IsInsideAnyNumberBox(focused);
+
+    private bool IsInsideInteractiveOptionControl(DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (node is NumberBox or TextBox or ComboBox or ToggleSwitch or ButtonBase)
+                return true;
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
+    private bool IsInsideAnyNumberBox(DependencyObject? node)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, StepPercentBox)
+                || ReferenceEquals(node, ProfileSoirBox)
+                || ReferenceEquals(node, ProfileJeuBox))
+            {
+                return true;
+            }
+            node = VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
+    private void DismissNumberBoxFocus()
+    {
+        DispatcherQueue.TryEnqueue(() => OptionsFocusSink.Focus(FocusState.Programmatic));
     }
 
     private void GeneralOption_Toggled(object sender, RoutedEventArgs e)

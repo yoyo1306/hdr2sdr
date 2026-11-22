@@ -484,11 +484,21 @@
         </Grid>
 
         <!-- Integrated Options View (Windows 11 Settings style) -->
-        <Grid x:Name="OptionsView" Grid.Row="1" Visibility="Collapsed" Padding="18,4,18,14">
+        <Grid x:Name="OptionsView" Grid.Row="1" Visibility="Collapsed" Padding="18,4,18,14" Background="Transparent">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
             </Grid.RowDefinitions>
+
+            <ContentControl
+                x:Name="OptionsFocusSink"
+                Width="1"
+                Height="1"
+                Opacity="0"
+                IsTabStop="True"
+                UseSystemFocusVisuals="False"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top" />
 
             <!-- Options header -->
             <Grid Grid.Row="0" Margin="0,0,0,12">
@@ -598,6 +608,7 @@
                                         Maximum="25"
                                         SmallChange="1"
                                         SpinButtonPlacementMode="Compact"
+                                        KeyUp="NumberBox_KeyUp"
                                         ValueChanged="NumericOption_ValueChanged" />
                                 </Grid>
 
@@ -621,6 +632,7 @@
                                         Maximum="100"
                                         SmallChange="5"
                                         SpinButtonPlacementMode="Compact"
+                                        KeyUp="NumberBox_KeyUp"
                                         ValueChanged="NumericOption_ValueChanged" />
                                 </Grid>
 
@@ -644,6 +656,7 @@
                                         Maximum="100"
                                         SmallChange="5"
                                         SpinButtonPlacementMode="Compact"
+                                        KeyUp="NumberBox_KeyUp"
                                         ValueChanged="NumericOption_ValueChanged" />
                                 </Grid>
                             </StackPanel>
